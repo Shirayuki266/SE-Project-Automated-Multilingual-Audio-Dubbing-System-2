@@ -1,951 +1,764 @@
-# 🍜 Hệ Thống Du Lịch Ẩm Thực Quận 4 (Quan4 Culinary Tourism)
+# 🛕 Hệ Thống Thuyết Minh Tự Động Đa Ngôn Ngữ Cho Việt Nam Quốc Tự
 
-> Tài liệu tổng hợp từ file `system-presentation-standalone.html` (bản trình bày hệ thống được sinh từ phân tích codebase).
-> Mục đích: mô tả đầy đủ yêu cầu, công nghệ, kiến trúc, chức năng và cách vận hành của app.
+> Tài liệu tổng hợp từ `PRD_ThuyetMinhTuDong_VietNamQuocTu_DeTai2.docx` (PRD v2.0) **đã cập nhật theo** `Bao_Cao_Phan_Tich_Phan_Bien_Va_Khac_Phuc_PRD_VietNamQuocTu_DeTai2.docx` (phiên bản hoàn thiện **v2.1**), trình bày theo đúng khung chương của `system-presentation-standalone.html`.
+> Mục đích: mô tả yêu cầu, công nghệ, kiến trúc, chức năng và cách vận hành của hệ thống. **Trọng tâm Đề tài 2: Backend Developer theo kiến trúc 3 lớp và quy trình CI/CD.**
+
+**Mobile Web App (Zero-Install)** giúp du khách và Phật tử tham quan **Việt Nam Quốc Tự** (244 Ba Tháng Hai, Phường 12, Quận 10, TP.HCM): bản đồ số tương tác, thuyết minh song ngữ Việt - Anh tự động theo vị trí (Geofencing GPS), quét QR dự phòng ở khu vực trong nhà nơi GPS yếu, kèm CMS cho Ban Quản trị chùa.
+
+`Backend 3 lớp (3-Tier)` · `Node.js + TypeScript` · `PostgreSQL + ORM` · `Mobile Web (Zero-Install)` · `Geofencing GPS + QR Indoor Fallback` · `Audio Range Streaming (HTTP 206)` · `ETag / Data Versioning` · `JWT Rotation + bcrypt` · `GitHub Actions CI/CD + Docker`
+
+**Bài toán cần giải:** khuôn viên rộng gần 4 ha nên khách mới dễ lạc; thiếu thông tin lịch sử, ý nghĩa văn hóa; nhà chùa không thể bố trí thuyết minh viên túc trực liên tục; rào cản ngôn ngữ với khách quốc tế (bảng biển chủ yếu chữ Hán và tiếng Việt); GPS yếu hoặc mất tín hiệu trong Chánh Điện và Phòng trưng bày.
 
 ---
 
 ## Mục lục
 
-1. [Giới thiệu & yêu cầu bài toán](#1-giới-thiệu--yêu-cầu-bài-toán)
-2. [Công nghệ sử dụng](#2-công-nghệ-sử-dụng)
-3. [Kiến trúc tổng quan](#3-kiến-trúc-tổng-quan)
-4. [Cơ sở dữ liệu (MongoDB)](#4-cơ-sở-dữ-liệu-mongodb)
-5. [Luồng khởi động](#5-luồng-khởi-động)
-6. [Chức năng chính](#6-chức-năng-chính)
-7. [Xác thực & phân quyền (RBAC)](#7-xác-thực--phân-quyền-rbac)
-8. [Đa ngôn ngữ (i18n 2 làn)](#8-đa-ngôn-ngữ-i18n-2-làn)
-9. [Offline / PWA](#9-offline--pwa)
-10. [Bản đồ & Map Pack](#10-bản-đồ--map-pack)
-11. [Admin Dashboard, Owner Portal, AI Advisor](#11-admin-dashboard-owner-portal-ai-advisor)
-12. [Design patterns & hằng số quan trọng](#12-design-patterns--hằng-số-quan-trọng)
-13. [Luồng end-to-end](#13-luồng-end-to-end-từ-mở-app-đến-nghe-audio)
-14. [Chi phí](#14-chi-phí)
-15. [Hướng dẫn triển khai / phát triển (gợi ý)](#15-hướng-dẫn-triển-khai--phát-triển-gợi-ý)
-16. [Hướng BE Dev: kiến trúc 3 lớp](#16-hướng-be-dev-kiến-trúc-3-lớp)
-17. [CI/CD](#17-cicd)
+| # | Chương | Nội dung |
+|---|---|---|
+| 00 | [Kiến Trúc Tổng Quan](#chapter-00--kiến-trúc-tổng-quan) | Actors, 3 lớp backend, cấu trúc thư mục, bảng CSDL, bản đồ Use Case |
+| 01–02 | [Luồng Khởi Động (Backend + Frontend)](#chapter-0102--luồng-khởi-động-backend--frontend) | CI/CD → Docker → deploy, khởi động Web App, kiểm tra phiên bản |
+| 04 | [GPS + Geofence + Audio Narration](#chapter-04--gps--geofence--audio-narration) | Haversine, Visited buffer, 3 chế độ phát audio |
+| 05 | [Module Content — POI Lifecycle](#chapter-05--module-content--poi-lifecycle) | API POI, ETag, Soft Delete, fallback nội dung |
+| 06 | [Module Audio / Media & QR Code](#chapter-06--module-audio--media--qr-code) | Upload, Range Streaming 206, sinh mã QR |
+| 07 | [Authentication & RBAC](#chapter-07--authentication--rbac) | Access/Refresh Token, khóa tài khoản |
+| 08 | [Localization — Đa Ngôn Ngữ 2 Làn](#chapter-08--localization--đa-ngôn-ngữ-2-làn) | Nội dung và giao diện, đổi ngôn ngữ |
+| 09 | [Offline-First — 4 Lớp Dự Phòng](#chapter-09--offline-first--4-lớp-dự-phòng) | Tải một lần, cache invalidation |
+| 10 | [Bản Đồ Số & API Service](#chapter-10--bản-đồ-số--api-service) | Trạng thái POI, danh sách 12 endpoint |
+| 11 | [Admin Dashboard (CMS)](#chapter-11--admin-dashboard-cms) | UC07–UC11, luồng quản trị |
+| — | [Design Patterns & Key Constants](#summary--design-patterns--key-constants) | Pattern và hằng số quan trọng |
+| 12 | [End-to-End Flow](#chapter-12--end-to-end-flow--từ-mở-app-đến-nghe-audio) | Từ quét QR cổng chùa đến nghe audio |
+| — | [Technology Stack & Cost Analysis](#appendix--technology-stack--cost-analysis) | Công nghệ, phản biện v2.0 → v2.1, lộ trình |
 
----
-
-# Hướng Dẫn Cài Đặt Môi Trường Ảo Python
-
-Tài liệu này hướng dẫn cách khởi tạo môi trường ảo (virtual environment) và cài đặt các thư viện cần thiết từ file `requirements.txt`.
-
-## Các bước thực hiện
-
-### Bước 1: Tạo môi trường ảo
-Mở terminal (hoặc Command Prompt/PowerShell) tại thư mục dự án của bạn và chạy lệnh sau:
-```bash
-python -m venv venv
-```
-*Lưu ý: Lệnh này sẽ tạo một thư mục tên là `venv` chứa toàn bộ cấu hình môi trường ảo.*
-
-### Bước 2: Kích hoạt môi trường ảo
-Tùy thuộc vào hệ điều hành bạn đang sử dụng, hãy chọn lệnh kích hoạt tương ứng:
-
-*   **Trên Windows (Command Prompt / PowerShell):**
-    ```bash
-    venv\Scripts\activate
-    ```
-*   **Trên macOS / Linux:**
-    ```bash
-    source venv/bin/activate
-    ```
-
-> 💡 **Dấu hiệu nhận biết:** Sau khi kích hoạt thành công, bạn sẽ thấy chữ `(venv)` xuất hiện ở đầu dòng lệnh của terminal.
-
-### Bước 3: Cài đặt các thư viện từ `requirements.txt`
-Sau khi môi trường ảo đã được kích hoạt, chạy lệnh sau để tự động cài đặt tất cả các gói thư viện được yêu cầu:
-```bash
-pip install -r requirements.txt
-```
-
----
-
-## Hướng dẫn bổ sung (Khi làm việc xong)
-
-*   **Hủy kích hoạt môi trường ảo:** Khi không muốn làm việc trên môi trường ảo nữa, bạn chỉ cần gõ lệnh:
-    ```bash
-    deactivate
-    ```
-*   **Cập nhật file `requirements.txt`:** Nếu bạn có cài đặt thêm thư viện mới và muốn lưu lại vào file, hãy dùng lệnh:
-    ```bash
-    pip freeze > requirements.txt
-    ```
----
-
-## 1. Giới thiệu & yêu cầu bài toán
-
-### 1.1 App là gì?
-
-Một **PWA full-stack** giúp du khách khám phá **ẩm thực đường phố Quận 4, TP.HCM**:
-
-- Bản đồ tương tác hiển thị các điểm ăn uống (POI – Point of Interest).
-- **Hướng dẫn âm thanh (audio guide) đa ngôn ngữ** tự động phát khi du khách đi vào vùng quanh quán (geofence).
-- **Hoạt động offline** (map, nội dung, hình ảnh, audio đều tải trước được).
-- Có cổng quản trị cho **Admin** và cổng riêng cho **chủ quán (Owner)**, kèm **AI** hỗ trợ viết mô tả.
-
-### 1.2 Yêu cầu (suy ra từ hệ thống)
-
-| Nhóm | Yêu cầu |
-|---|---|
-| **Người dùng cuối (du khách)** | Xem bản đồ + POI gần mình; tự động nghe thuyết minh khi đến gần quán; đổi ngôn ngữ (vi, en, zh, ja, ko và long-tail); dùng được khi mất mạng; không cần đăng nhập |
-| **Chủ quán (Owner)** | Đăng ký tài khoản, chờ duyệt; tạo/cập nhật thông tin quán (chờ admin duyệt); nhận thông báo kết quả duyệt; dùng AI cải thiện mô tả (10 lần/ngày) |
-| **Admin** | CRUD POI/User/Role/Menu; duyệt đăng ký + bài gửi của owner; xem analytics, audit log; theo dõi tiến trình tạo audio realtime |
-| **Phi chức năng** | Chi phí thấp (core open-source); offline-first; bảo mật (httpOnly cookie, RBAC, mã hoá PII); riêng tư (analytics cần consent); chịu lỗi (nhiều tầng fallback) |
-
----
-
-## 2. Công nghệ sử dụng
-
-### 2.1 Backend
-
-| Công nghệ | Vai trò |
-|---|---|
-| **FastAPI** | Web framework async (Python) |
-| **Motor** | Driver MongoDB bất đồng bộ |
-| **MongoDB** | CSDL chính (cần hỗ trợ transaction) |
-| **Redis** | Presence, rate-limit analytics, khoá điều phối |
-| **Edge-TTS** (Microsoft) | Tạo giọng đọc neural – miễn phí, 300+ voices |
-| **deep-translator** (GoogleTranslator) | Dịch văn bản – free tier |
-| **Gemini 2.5 Flash / ProxyPal gateway** | AI cải thiện mô tả quán |
-| **bcrypt** | Băm mật khẩu |
-| **PyJWT** (HS256) | JWT access/refresh token |
-| **cryptography (Fernet)** | Mã hoá PII (CCCD chủ quán) |
-| S3-compatible storage *(tuỳ chọn)* | Lưu media |
-
-### 2.2 Frontend
-
-| Công nghệ | Vai trò |
-|---|---|
-| **React 19.2** | UI |
-| **Vite 7** (+ PWA plugin) | Build tool |
-| **Zustand** | Quản lý state |
-| **MapLibre GL JS** | Bản đồ vector |
-| **PMTiles** | Tile vector offline, self-host, không cần tile server |
-| **Turf.js** | Tính toán không gian (khoảng cách, geofence) |
-| **Workbox** (`injectManifest`) | Service Worker |
-| **idb** | Bọc IndexedDB (`Quan4DB v2`) |
-| `window.speechSynthesis` | TTS cục bộ (fallback cuối) |
-
-### 2.3 Dịch vụ ngoài (tuỳ chọn)
-
-- **MapTiler** – cần `VITE_MAPTILER_KEY` cho chế độ Cloud/Hybrid.
-- **Gemini / ProxyPal** – cần API key cho AI Advisor.
-- **OpenWeather** – chỉ khi bật weather context cho AI.
-
-### 2.4 Chất lượng / CI
-
-- `frontend/package.json`: `lint:quality` → `build` → `test:node:regressions` / `test:smoke` / `perf:benchmark`.
-- GitHub Actions: `.github/workflows/quality.yml`, `perf-smoke.yml`.
-
----
-
-## 3. Kiến trúc tổng quan
-
-**Mô hình: Modular Monolith** – 9 domain backend chính, **10 router** được mount, dùng chung MongoDB/Redis/static storage nhưng tách boundary theo `router / service / store`.
-
-### 3.1 Mười router (lane) của backend
-
-| Router | Trách nhiệm |
-|---|---|
-| `content` | CRUD POI, delta sync, hydrate localization, activation gate |
-| `audio` | Edge-TTS, GoogleTranslator, task manager, voices, pack manifest |
-| `admin` | Cookie auth, RBAC, duyệt đăng ký, audit |
-| `owner` | Cổng chủ quán, notification, submissions |
-| `ai_advisor` | Gemini 2.5 Flash / ProxyPal, quota 10/ngày cho owner |
-| `analytics` | Thu thập có consent, Redis presence, Mongo read models |
-| `localization` | On-demand, hotset, warmup, gate "English sẵn sàng" |
-| `ui_i18n` | UI bundles, `source_hash`, pending/ready, dịch long-tail |
-| `maps` | Manifest static-first, PMTiles, glyphs, sprites, chặn path traversal |
-| `runtime_observability` | Ingest vị trí công khai riêng, rate-limit, cửa sổ quan sát cho admin |
-
-Kèm: `/static`, `/health`, `/health/ready`.
-
-### 3.2 Số liệu hệ thống
+## Số liệu hệ thống
 
 | Chỉ số | Giá trị |
 |---|---|
-| Mounted FastAPI routers | 10 |
-| Admin + Owner APIs | 52 (40 admin + 12 owner) |
-| RBAC permissions | 32 (9 domain) |
-| Audio tiers | 4 |
-| Content fallback layers | 3 |
-| Offline defense layers | 4 |
-| Map modes | 3 (Cloud / Offline / Hybrid) |
+| Tác nhân (Actor) ngoài hệ thống | **3** (Khách tham quan, Quản trị viên, CI/CD Runner) |
+| Lớp Backend | **3** (Controller → Service → Repository) |
+| Use Case | **15** (UC01–UC11 + UC-BE-01 đến UC-BE-04) |
+| RESTful API endpoints | **12** (+ Telemetry API, đường dẫn chưa định nghĩa) |
+| Bảng CSDL | **5** (`campuses`, `pois`, `poi_media`, `admin_users`, `listening_analytics`) |
+| Bán kính Geofence | **5 – 100 m** |
+| Ngôn ngữ hỗ trợ | **2** (VI, EN), sẵn sàng mở rộng |
+| Code coverage tối thiểu (Service Layer) | **≥ 80%** |
 
 ---
 
-## 4. Cơ sở dữ liệu (MongoDB)
+## Chapter 00 — Kiến Trúc Tổng Quan
 
-| Collection | Module | Mục đích |
-|---|---|---|
-| `POI` | content | POI gốc (tiếng Việt), hình ảnh, toạ độ, `trigger_radius` |
-| `poi_localizations` | localization | Bản dịch + `audio_url` theo `(poi_id, lang)` – compound index |
-| `audio_tasks` | audio | Snapshot/control state task audio, recovery sau restart, heartbeat, TTL |
-| `content_dataset_versions` | content | Version token cho `/poi/load-all`, ETag, delta sync cursor |
-| `admin_users` | admin | Tài khoản admin/owner, mật khẩu băm, role, `is_poi_owner_verified`, PII mã hoá |
-| `roles` | admin | Role động + mảng permission (seed 4 role mặc định) |
-| `audit_logs` | admin | Nhật ký hành động (action, user_id, resource, timestamp) |
-| `poi_owner_registrations` | admin | Đơn đăng ký chủ quán (pending → approved/rejected) + `admin_note` |
-| `poi_submissions` | admin | POI owner tạo/sửa chờ duyệt |
-| `owner_notifications` | admin | Thông báo review cho owner (đọc/chưa đọc) |
-| `ai_usage_limits` | ai_advisor | Rate limit `{user_id, date, count}`, reset hàng ngày |
-| `analytics_*` | analytics | Devices, sessions, events, metrics giờ/ngày, jobs, read models |
-| `localization_rate_limits` | localization | Rate limit dùng chung cho dịch/TTS on-demand (TTL) |
-| `ui_translation_bundles` | ui_i18n | Cache bundle UI theo namespace + locale + `source_hash` |
-| `runtime_location_hourly` | runtime_observability | Read model vị trí theo giờ, tách khỏi analytics consent |
-| `MenuItem` | content | Món ăn của từng POI |
-
----
-
-## 5. Luồng khởi động
-
-### 5.1 Backend (4 tầng)
-
-1. **Security + Bootstrap guard** – kiểm tra `JWT_SECRET`, `REFRESH_TOKEN_SECRET`, `SECRET_KEY` ở môi trường non-dev; validate `SUPERADMIN_BOOTSTRAP_MODE`. Thiếu/sai → **fail-fast**.
-2. **DB / Cache / Media readiness** – `connect_db()` → `assert_transaction_capability()` → (tuỳ chọn) `media_storage.check_backend_health()` nếu dùng S3.
-3. **Seeding + runtime prep** – `ensure_roles()`, `ensure_super_admin()`, `verify_runtime_storage()` / `ensure_runtime_storage()`.
-4. **Recovery + background workers** – refresh transaction readiness, khôi phục audio task sau restart, chạy maintenance loop, đảm bảo index observability, bật `analytics_worker` và `media_cleanup_worker`.
-5. Gắn 10 router + `/static` + health endpoints.
-
-### 5.2 Frontend
-
-```
-SW Register → React Router (catch-all) → Splash Screen → Chọn ngôn ngữ → Parallel Load
-```
-
-Parallel Load gồm:
-
-- 🧭 **Best-effort locate** – ưu tiên vị trí cached còn tốt (budget 15s, cache age 30s, độ chính xác chấp nhận tới 100m).
-- 💾 **Offline snapshot** – `getOfflinePOIs(lang)` + UI bundle từ IndexedDB → render ngay cả khi backend chưa phản hồi.
-- 🌐 **Delta sync content** – `loadAllPOIs(lang)` dùng ETag, `dataset_version`, `updated_after`.
-- 🔥 **Hotset readiness** – `prepare-hotset` lấy tối đa 10 POI gần nhất trong 1.5 km; chỉ coi là sẵn sàng khi **3 POI bắt buộc** đã được cache.
-- 🧩 **UI bundle + warmup** – quick-start bằng English trong khi `/warmup` và `/ui-bundles` hoàn tất nền.
-
-**Startup probe:** trước khi kết luận backend lỗi, thử `/api/v1/audio/languages` và `/api/v1/maps/offline-options` với timeout 2.5s, tối đa 2 lần trong cửa sổ 8s.
-
----
-
-## 6. Chức năng chính
-
-### 6.1 GPS + Geofence + Audio Narration
-
-**4 giai đoạn:**
-
-1. **GPS Collection** (`LocationService`) – `watchPosition()` liên tục, throttle 5s.
-2. **Zone Detection** (`GeofenceEngine`) – `turf.distance()`; trong bán kính (mặc định **30m**) → `pendingEntries`; ra ngoài zone đã trigger → cooldown **5 phút**.
-3. **Audio Decision** – safety reconcile 5s; xác nhận ENTER sau debounce **3s**; chọn POI theo `audio_priority` rồi theo khoảng cách → đẩy vào `NarrationEngine`.
-4. **Audio Playback** – `AudioQueueManager` (hàng đợi ưu tiên 1 slot) → `playWithFallback()`. Kết quả on-demand cũ bị bỏ nếu user đã đổi ngôn ngữ giữa chừng.
-
-**Audio 4 tầng (Hybrid):**
-
-| Tầng | Tên | Độ trễ | Điều kiện / cách hoạt động |
-|---|---|---|---|
-| 1 | Pre-generated | ~0ms | Có `audio_url`, không `is_fallback` → Service Worker CacheFirst |
-| 1.5 | On-demand translate + TTS | 2–5s | `POST /localizations/on-demand` khi POI `is_fallback=true` |
-| 2 | Cloud TTS stream | 3–8s | `POST /audio/tts` → Edge-TTS → stream MP3, có disk cache |
-| 3 | Local speech synthesis | 0ms | `window.speechSynthesis` – fallback offline cuối cùng |
-
-**Background prefetch:** quét POI `is_fallback=true` trong 500m, enqueue tối đa 3 POI/đợt, đợt mới sau ≥ 30s; gặp 429 thì backoff 30s → 60s → 120s … tối đa 10 phút.
-
-### 6.2 Quản lý nội dung POI
-
-| Endpoint | Chức năng |
-|---|---|
-| `GET /poi/load-all` | API nặng nhất; full sync hoặc delta sync (`If-None-Match` + `updated_after`); trả `dataset_version`, `sync_mode`, `removed_poi_ids`, `sync_cursor`; chỉ trả POI đã sẵn sàng tiếng Anh |
-| `GET /poi/nearby` | Dùng `$geoNear` (index không gian); lỗi thì fallback Haversine in-memory |
-| Create/Update POI | Lưu text trước, queue audio cho **5 ngôn ngữ ưu tiên**; đổi mô tả → xoá `audio_url` cũ, `audio_status="processing"`, tạm `is_active=false` |
-| Delete POI | Transaction khi có thể, cascade `poi_localizations`, enqueue media cleanup, cập nhật dataset version |
-
-- **Activation gate:** bật public mà chưa có English/audio thì phải regenerate trước.
-- **Audio URL decoration:** backend gắn `?v={updated_at}&l={lang}` để cache-bust và để SW chia shard theo ngôn ngữ.
-- Giới hạn: tối đa **8 ảnh/POI**, mỗi ảnh ≤ **5 MB**.
-
-**3 tầng fallback nội dung:** `Ngôn ngữ yêu cầu → English → Tiếng Việt nguyên bản` (tầng cuối có `audio_url = null` để frontend chuyển sang on-demand/tier audio khác).
-
-### 6.3 Audio / TTS
-
-- **TTSService:** `translate_text()` (deep-translator) và `generate_audio()` (dịch → Edge-TTS → lưu MP3).
-- **Cache key:** `MD5(f"{text}:{lang}")` – file đã tồn tại = Cache HIT, chi phí bằng 0.
-- **5 giọng ưu tiên:** vi `HoaiMyNeural`, en `JennyNeural`, zh `XiaoxiaoNeural`, ja `NanamiNeural`, ko `SunHiNeural`.
-- **AudioTaskManager:** chạy song song với `Semaphore(3)`; tiến trình realtime qua **SSE** (`GET /admin/audio-tasks/stream`); trạng thái `queued → running → paused → completed/failed/cancelled`; UI có Pause/Resume/Cancel.
-- **`GET /audio/pack-manifest`:** quét MP3 theo ngôn ngữ, tính SHA-256 từng file, trả `{lang, pack_version, total_files, total_bytes, files[]}`.
-
-**Pipeline:** `Source Text (VN) → deep-translator → Translated Text → MD5 check → Edge-TTS → MP3 → Upsert Localization`
-
-### 6.4 Analytics & Observability
-
-- Analytics công khai **chỉ chạy sau khi user đồng ý (consent)**.
-- `tracked_online_users` = số anonymous device đã consent còn trong sliding window (không phải tổng traffic).
-- `runtime_observability` là lane **riêng** cho vị trí, không trộn với analytics consent.
-
----
-
-## 7. Xác thực & phân quyền (RBAC)
-
-### 7.1 Cookie auth
-
-| Token | Thời hạn | Thuộc tính |
-|---|---|---|
-| `access_token` (JWT) | 30 phút | httpOnly, SameSite=Lax, Secure |
-| `refresh_token` (JWT) | 7 ngày | httpOnly |
-
-- JS không đọc được token (chống XSS); SameSite chống CSRF.
-- **Dual-mode:** Cookie (browser) + Bearer header (API/mobile fallback).
-- JWT payload chứa permissions → hầu hết request không cần query DB.
-
-### 7.2 Dynamic RBAC
-
-- **Static:** 32 permissions / 9 domain (trong code).
-- **Dynamic:** Role lưu trong MongoDB.
-- Route guard: `require_permission("poi:delete")`.
-
-**9 domain permission:**
-
-| Domain | Permissions |
-|---|---|
-| poi | read, create, update, delete, approve, toggle |
-| menu | read, create, update, delete |
-| user | read, create, update, delete |
-| role | read, create, update, delete |
-| analytics | view, export, view_own |
-| audit | read, manage |
-| system | config, logs, backup |
-| owner | register, access, submit_poi, manage_own_poi |
-| content | moderate, publish |
-
-**4 role mặc định:**
-
-| Role | Priority | Quyền |
-|---|---|---|
-| `super_admin` | 0 | Tất cả 32 permissions |
-| `admin` | 1 | POI/Menu/User + Analytics + Audit + Content |
-| `poi_owner` | 10 | `poi:read` + `owner:access/submit_poi/manage_own_poi` + `menu:read/create/update` + `analytics:view_own` |
-| `user` | 100 | `poi:read` + `menu:read` + `owner:register` |
-
-### 7.3 Bảo vệ dữ liệu cá nhân (PII)
-
-- Số CCCD chủ quán → `encrypt_pii()` (**Fernet**, tiền tố `v1:`) lưu DB.
-- Sau **180 ngày** tự động redacted.
-- Decrypt chỉ khi cần, lỗi thì trả `None` (không rò rỉ).
-
-### 7.4 Owner Gate
-
-Ngoài role `poi_owner`, các nghiệp vụ owner còn yêu cầu `is_poi_owner_verified === true`. Chưa xác minh → frontend chỉ cho vào `/owner/registration-status` và màn thông báo.
-
----
-
-## 8. Đa ngôn ngữ (i18n 2 làn)
-
-| Làn | Nội dung | Cách hoạt động |
-|---|---|---|
-| **Làn 1 – Content locale** | Nội dung POI | `GET /poi/load-all?lang=ja` hydrate theo `target → English → Vietnamese` |
-| Làn 1.1 – Hotset | POI gần | `prepare-hotset` làm nóng ≤ 10 POI trong 1.5km; sẵn sàng khi 3 POI bắt buộc đã cache |
-| Làn 1.2 – On-demand + Warmup | Dịch theo yêu cầu / full corpus nền | `POST /localizations/on-demand`, `POST /warmup`; bị chặn thì trả `Retry-After` |
-| **Làn 2 – UI bundles** | Chuỗi giao diện | `GET /api/v1/ui-bundles/{locale}`; 5 ngôn ngữ top-level (`en, vi, zh, ja, ko`) có bundle tĩnh; long-tail trả English kèm `status: pending` + `source_hash` trong lúc dịch nền |
-
-> **Điểm mấu chốt:** đổi ngôn ngữ chỉ hoàn tất khi **cả content hotset lẫn UI bundle đều ready**. Trong lúc chờ, app có thể quick-start bằng English.
-
-- Rate limit on-demand: **30 req / 10 phút**.
-
----
-
-## 9. Offline / PWA
-
-### 4 lớp phòng ngự
-
-**Lớp 1 – Service Worker (Workbox `injectManifest`)**
-
-- POI data: **NetworkFirst** 8s, cache `poi-load-all-cache`, TTL 15 phút.
-- Audio: **CacheFirst** theo ngôn ngữ (`audio-cache-lang-{lang}`).
-- Images + runtime chunks: CacheFirst, quota-aware purge.
-- Map pack: immutable cache riêng + message lane activate/deactivate.
-
-**Lớp 2 – Language sharding + build sync**
-
-- Tối đa **300 file/ngôn ngữ**, **3 ngôn ngữ** đồng thời; LRU xoá ngôn ngữ ít dùng nhất.
-- `APP_BUILD_SYNC` dọn optional chunk cache cũ sau mỗi lần deploy.
-
-**Lớp 3 – IndexedDB (`Quan4DB v2`)**
-
-- Lưu `pois_by_lang` và UI bundles.
-- Fallback offline: `target → en → vi` (bỏ qua `is_fallback=true` ở lane target). Người dùng không bao giờ thấy màn hình trống.
-
-**Lớp 4 – Offline Packs** (theo ngôn ngữ đang chọn: **map + POI + images + audio**)
-
-- Cài tuần tự: map → POI → images → audio.
-- Kiểm tra **SHA-256** từng asset trước khi activate.
-- Pack cache tách khỏi runtime cache.
-- Trạng thái: `updateAvailable`, `repairRequired`, `poiMissing`.
-- `purgeOnQuotaError: true` → hết dung lượng thì hy sinh runtime cache, giữ pack.
-
-### Giao thức message với Service Worker
-
-| Message | Mục đích |
-|---|---|
-| `SET_ACTIVE_LANGUAGE` | Ghim shard ngôn ngữ đang dùng để eviction ưu tiên giữ đúng |
-| `APP_BUILD_SYNC` | Dọn chunk cache cũ sau deploy |
-| `AUDIO_PACK_ACTIVATE` | Kích hoạt audio pack |
-| `AUDIO_PACK_REMOVE_LANG` | Xoá toàn bộ cache audio của một ngôn ngữ |
-| `MAP_PACK_ACTIVATE` | Kích hoạt map pack mới |
-| `MAP_PACK_DEACTIVATE` | Xoá PMTiles/style/font cache, quay về cloud |
-
-Nếu remote manifest lỗi liên tục, lane kiểm tra update tự vào **cooldown** để không spam network.
-
----
-
-## 10. Bản đồ & Map Pack
-
-### 3 chế độ
-
-| Chế độ | Mô tả |
-|---|---|
-| ☁️ **Cloud** (mặc định) | Style template của dự án, glyphs tự host, cần `VITE_MAPTILER_KEY` |
-| 📦 **Offline Pack** | PMTiles + style/glyphs local, theo scope (Quận 4 / TP.HCM), đọc từ Cache API sau khi verify |
-| 🔄 **Hybrid Q4** | Cloud-first, tự chuyển sang pack local khi cloud lỗi/offline; quay lại cloud có độ trễ để tránh flip-flop |
-
-### Chuỗi 4 tầng
-
-1. **Mode selection** – `mapConfig.js`.
-2. **Pack publication** – `/static/maps/*` (chính) + `/api/v1/maps/*` (tương thích); manifest có version, checksum, scope, source_date, bbox.
-3. **Pack activation** – tải, verify SHA-256, safe/replace update, rồi mới activate.
-4. **Runtime rendering** – MapLibre + `pmtiles://`.
-
-### Endpoint maps
-
-| Endpoint | Cache |
-|---|---|
-| `GET /static/maps/packs/current/manifest.json` / `GET /api/v1/maps/offline-manifest` | no-cache |
-| `GET /api/v1/maps/offline-options` | no-cache |
-| `GET /static/maps/packs/{version}/{file}.pmtiles` (Range Requests) | immutable |
-| `GET /static/maps/styles/*.json` | revalidate / immutable |
-| `GET /static/maps/fonts/{fontstack}/{range}.pbf` | immutable |
-
-**Bảo mật:** `resolve_safe_path(base, relative)` – mọi đường dẫn phải nằm trong base dir, chặn Path Traversal. Thư mục dữ liệu: `backend/app/static/maps/` (override bằng env `MAP_PACK_DATA_DIR`).
-
----
-
-## 11. Admin Dashboard, Owner Portal, AI Advisor
-
-### 🏪 Owner Portal (B2B)
-
-- Đăng ký public: `POST /admin/auth/register-owner`.
-- Admin duyệt → `is_verified=true` + `is_poi_owner_verified=true`.
-- Quản lý quán của mình: `PUT /owner/pois/{id}`.
-- Submissions chờ admin phê duyệt mới lên app (ghi chú dùng field `admin_note`).
-- Notification bell + trang chi tiết: `/owner/notifications*`.
-
-**Luồng đăng ký:**
-
-```
-Chủ quán đăng ký → tạo user (poi_owner, unverified) → tạo poi_owner_registrations (pending)
-→ Admin duyệt → user verified → Owner login → /owner
-```
-
-### 🎛️ Admin Dashboard (40 admin routes + 12 owner = 52)
-
-- CRUD: POIs, Users, Roles, Menus.
-- Kiểm duyệt: Registrations, Submissions.
-- Auth: `/admin/auth/me`, `POST /admin/auth/change-password`.
-- Giám sát: analytics read models, audit logs, runtime observability window.
-- SSE: tiến trình audio task realtime.
-
-### 🤖 AI Advisor (Gemini 2.5 Flash / ProxyPal)
-
-- `GET /ai/usage`, `POST /ai/enhance-description`.
-- Prompt: **không bịa**, được thêm tính từ tích cực, viết 200–300 từ.
-- Rate limit: Owner **10/ngày** (`OWNER_DAILY_LIMIT`), Admin không giới hạn.
-- Timeout 30s, báo lỗi theo provider rõ ràng cho UI.
-
----
-
-## 12. Design patterns & hằng số quan trọng
-
-### Patterns
-
-| Pattern | Mô tả |
-|---|---|
-| Modular Monolith | 9 domain, 10 router, tách boundary router/service/store |
-| 4-Tier Hybrid Audio | Pre-gen → On-demand → Cloud TTS → Local TTS |
-| 3-Tier Content Fallback | Target → English → Vietnamese |
-| Dual-Lane i18n | Content locale và UI bundle warm riêng |
-| Language Sharding | SW cache theo ngôn ngữ + LRU + ghim ngôn ngữ active |
-| Geofence Reconciliation | Reconcile 5s, debounce 3s, cooldown 5 phút |
-| Dynamic RBAC | Permission tĩnh (code) + Role động (DB) |
-| Consent-Gated Analytics | Chỉ ghi nhận khi user đồng ý |
-| httpOnly Cookie Auth | Chống XSS, SameSite chống CSRF |
-| Offline-First PWA | SW + IndexedDB + Cache API + PMTiles |
-| SSE Progress Tracking | Task audio snapshot Mongo + EventSource |
-| PII Encryption at Rest | Fernet + tự redact sau 180 ngày |
-
-### Hằng số
-
-| Hằng số | Giá trị |
-|---|---|
-| ACCESS_TOKEN_EXPIRE | 30 phút |
-| REFRESH_TOKEN_EXPIRE | 7 ngày |
-| VOICE_CATALOG_TTL | 6 giờ |
-| MAX_CONCURRENT_TTS | 3 |
-| AUDIO_TASK_HEARTBEAT | 5 giây |
-| AUDIO_TASK_STALE_AFTER | 5 phút |
-| AUDIO_TASK_RETENTION | 14 ngày |
-| PII_RETENTION_DAYS | 180 ngày |
-| MAX_POI_IMAGES / MAX_IMAGE_SIZE | 8 / 5 MB |
-| ON_DEMAND_RATE_LIMIT | 30 req / 10 phút |
-| HOTSET_MAX_POI_IDS / REQUIRED_CACHE_COUNT | 10 / 3 |
-| OWNER_DAILY_LIMIT | 10 |
-| STARTUP_PROBE_WINDOW / MAX_FAILS | 8 giây / 2 |
-| GPS Throttle | 5s |
-| Locate request budget / max cached age | 15s / 30s |
-| Geofence debounce / radius / cooldown / reconcile | 3s / 30m / 5 phút / 5s |
-| Prefetch queue | Top 3/đợt, cách ≥ 30s |
-| Hotset nearby radius | 1500m |
-| POI cache TTL | 15 phút |
-| Audio max per lang / Max language caches | 300 / 3 |
-| IndexedDB | `Quan4DB v2` |
-
----
-
-## 13. Luồng end-to-end (từ mở app đến nghe audio)
-
-```mermaid
-sequenceDiagram
-    participant U as User/Browser
-    participant SW as Service Worker
-    participant FE as React Frontend
-    participant GE as GeofenceEngine
-    participant NE as NarrationEngine
-    participant BE as FastAPI Backend
-    participant DB as MongoDB
-
-    U->>SW: Mở app → SW register
-    FE->>U: Splash → chọn ngôn ngữ
-    par Parallel Load
-        FE->>SW: getOfflinePOIs() (IndexedDB)
-        FE->>BE: GET /poi/load-all?lang=en
-        BE->>DB: Query POIs + Localizations
-        BE-->>FE: POI data (3-tier fallback)
-        FE->>BE: POST /localizations/prepare-hotset
-        FE->>BE: POST /localizations/warmup
-    end
-    FE->>GE: startTracking (watchPosition)
-    loop Mỗi 5s (GPS throttle)
-        U->>GE: GPS update
-        GE->>GE: checkGeofences → debounce 3s → confirm ENTER
-        GE->>NE: queueNarration(bestPOI)
-    end
-    NE->>NE: playWithFallback()
-    alt Tier 1: Pre-gen
-        NE->>SW: fetch audio_url (CacheFirst)
-    else Tier 1.5: On-demand
-        NE->>BE: POST /localizations/on-demand
-    else Tier 2: Cloud TTS
-        NE->>BE: POST /audio/tts
-    else Tier 3: Local TTS
-        NE->>U: window.speechSynthesis
-    end
-```
-
----
-
-## 14. Chi phí
-
-| Thành phần | Chi phí |
-|---|---|
-| Edge-TTS (300+ giọng) | ✅ Miễn phí |
-| deep-translator (Google Translate free) | ✅ Miễn phí |
-| PMTiles (self-host) | ✅ Không cần tile server |
-| MapLibre | ✅ Open-source |
-| Workbox | ✅ Open-source |
-| Gemini / ProxyPal | ⚠️ Cần API key, quota 10 lượt/ngày cho owner |
-| MapTiler | ⚠️ Chỉ cần key cho Cloud/Hybrid |
-| OpenWeather | ⚠️ Chỉ khi bật weather context cho AI |
-
-→ **Core $0**, chỉ trả phí cho các tính năng tuỳ chọn. Chi phí hạ tầng (server, MongoDB, Redis, lưu trữ) vẫn phát sinh khi deploy.
-
----
-
-## 15. Hướng dẫn triển khai / phát triển (gợi ý)
-
-> ⚠️ File trình bày gốc **không chứa lệnh cài đặt cụ thể hay cấu trúc thư mục đầy đủ**. Phần này chỉ là hướng dẫn gợi ý dựa trên stack và biến môi trường được nhắc đến. Hãy đối chiếu với `README` / `package.json` / `requirements.txt` trong repo thật.
-
-### 15.1 Yêu cầu môi trường
-
-- Python 3.10+ (FastAPI, Motor, Edge-TTS…)
-- Node.js 18+ (Vite 7, React 19)
-- MongoDB (bật **replica set** vì app kiểm tra `assert_transaction_capability()`)
-- Redis
-- Dung lượng lưu trữ cho `static/` (map pack, audio MP3, ảnh)
-
-### 15.2 Biến môi trường được nhắc đến
-
-| Biến | Dùng cho |
-|---|---|
-| `JWT_SECRET`, `REFRESH_TOKEN_SECRET`, `SECRET_KEY` | Bắt buộc ở non-dev, thiếu là backend không chạy |
-| `SUPERADMIN_BOOTSTRAP_MODE` | Chế độ tạo super admin lần đầu |
-| `MAP_PACK_DATA_DIR` | Override thư mục map pack |
-| `VITE_MAPTILER_KEY` | Frontend – cloud/hybrid map |
-| API key Gemini / ProxyPal | AI Advisor |
-| Khoá Fernet cho PII | Mã hoá CCCD *(tên biến chưa nêu trong tài liệu)* |
-| Cấu hình S3-compatible | Tuỳ chọn, lưu media |
-
-### 15.3 Quy trình gợi ý
-
-```bash
-# 1. Backend
-cd backend
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-# cấu hình .env (secrets, MongoDB, Redis...)
-uvicorn app.main:app --reload
-
-# 2. Frontend
-cd frontend
-npm install
-npm run dev            # phát triển
-npm run lint:quality   # kiểm tra chất lượng
-npm run build          # build production (PWA)
-npm run test:smoke     # smoke test
-```
-
-### 15.4 Kiểm tra sau khi chạy
-
-- `GET /health` và `GET /health/ready` trả OK.
-- Đăng nhập super admin → tạo POI → xem audio task chạy qua SSE.
-- Mở app, chọn ngôn ngữ, bật định vị → đứng gần POI để thử geofence + audio.
-- Tắt mạng → app vẫn hiển thị POI từ IndexedDB/Service Worker.
-- Cài Offline Pack (map + POI + images + audio) rồi thử lại ở chế độ máy bay.
-
----
-
-## 16. Hướng BE Dev: kiến trúc 3 lớp
-
-> **Cách đọc phần này:** hệ thống gốc đã tách boundary theo `router / service / store` trong từng domain (xem mục 3). Đây chính là mô hình 3 lớp. Phần dưới hệ thống hoá lại thành quy ước cho BE dev. Tên file như `content/service.py`, `audio/task_manager.py`, `audio/task_store.py`, `main.py` lấy từ tài liệu gốc. Cấu trúc thư mục chi tiết và đoạn code mẫu là **đề xuất**, hãy đối chiếu với repo thật.
-
-### 16.1 Sơ đồ 3 lớp
+Backend tổ chức theo **3 lớp (3-Tier)**: `Presentation / Controller` → `Business Logic / Service` → `Data Access / Repository`. Các tầng phụ thuộc **một chiều** (Controller chỉ gọi Service, Service chỉ gọi Repository, Repository mới chạm CSDL); **cấm Controller truy vấn trực tiếp Database**. Tầng nghiệp vụ không phụ thuộc công nghệ CSDL bên dưới, nhờ đó dễ unit test và dễ bảo trì, mở rộng.
 
 ```mermaid
 flowchart TB
-    C[Client: React PWA / Admin / Owner] --> L1
-
-    subgraph L1[Lớp 1 - Presentation / API]
-        R1[Router + Pydantic schema]
-        R2[Auth dependency: cookie JWT, require_permission]
-        R3[HTTP concerns: ETag, Retry-After, SSE, status code]
+    subgraph Client["Client: Mobile Web App (Zero-Install)"]
+        WEB["End-User Web App<br/>Bản đồ, Geofence, Audio, Quét QR"]
+        CMS["Admin CMS<br/>POI, Media, Xuất QR"]
     end
 
-    subgraph L2[Lớp 2 - Business / Service]
-        S1[content service]
-        S2[audio service + task_manager]
-        S3[localization service]
-        S4[admin / owner service]
-        S5[ai_advisor service]
+    subgraph T1["Tầng 1: Presentation / Controller"]
+        CTRL["Auth, Campus, POI, Media, Analytics Controller"]
+        MW["DTO Validators, JWT Auth, Rate Limit, Global Exception Handler"]
     end
 
-    subgraph L3[Lớp 3 - Data Access / Store / Adapter]
-        D1[(MongoDB - Motor)]
-        D2[(Redis)]
-        D3[Media storage: local static / S3]
-        D4[External: Edge-TTS, deep-translator, Gemini]
+    subgraph T2["Tầng 2: Business Logic / Service"]
+        SVC["AuthService, CampusService, POIService,<br/>MediaStorageService, AudioStreamService,<br/>QRCodeService, GeofenceHelper"]
     end
 
-    L1 --> L2 --> L3
+    subgraph T3["Tầng 3: Data Access / Repository"]
+        REPO["User, Campus, POI, Media, Analytics Repository<br/>Entities ORM + Connection Pool"]
+    end
+
+    DB[("PostgreSQL")]
+    STORE[("Storage: Local / Cloudinary / S3")]
+    CACHE[("Redis / Memory Cache<br/>ETag, version")]
+    CICD["GitHub Actions Runner<br/>(Actor hệ thống)"]
+
+    WEB -->|"REST JSON, HTTP 206"| CTRL
+    CMS -->|"REST + JWT"| CTRL
+    CTRL --> SVC
+    SVC --> REPO
+    SVC --> CACHE
+    REPO --> DB
+    REPO --> STORE
+    CICD -.->|"test, build, deploy"| T1
 ```
 
-**Quy tắc phụ thuộc:** chỉ gọi xuống dưới (`Router → Service → Store`). Lớp dưới không import lớp trên. Không gọi nhảy cóc (router không chạm Mongo trực tiếp).
+### Tác nhân (Actors) — theo chuẩn UML
 
-### 16.2 Trách nhiệm từng lớp
+Actor phải là thực thể **nằm ngoài** biên giới hệ thống. Vì vậy "Hệ thống Backend 3 lớp" (có trong PRD v2.0) **không còn là Actor**, thay bằng:
 
-| Lớp | Làm | Không làm | Ví dụ trong hệ thống |
-|---|---|---|---|
-| **1. Presentation (router)** | Nhận request, validate schema, kiểm quyền (`require_permission("poi:delete")`), map exception → HTTP status, set header | Không chứa logic nghiệp vụ, không query DB | `GET /poi/load-all` xử lý `If-None-Match` và trả ETag; `Retry-After` khi bị rate-limit; SSE `/admin/audio-tasks/stream` |
-| **2. Business (service)** | Quy tắc nghiệp vụ, điều phối nhiều store, quản lý transaction, gọi provider ngoài qua adapter | Không biết HTTP (`Request`/`Response`), không viết query thô | Activation gate (bật public phải có English + audio), fallback `target → en → vi`, delta sync, quota AI 10/ngày, hotset 10 POI/1.5km |
-| **3. Data access (store/adapter)** | Truy vấn Mongo/Redis, đọc ghi file media, bọc API bên ngoài | Không chứa quy tắc nghiệp vụ | `audio/task_store.py` (snapshot task, TTL 14 ngày), `$geoNear` kèm fallback Haversine, Edge-TTS, Gemini/ProxyPal, S3 |
+| Tác nhân | Phân loại | Vai trò và hành vi |
+|---|---|---|
+| **Khách tham quan / Phật tử** (Mobile Web App) | Human Actor | Gửi HTTP Request lấy dữ liệu bản đồ, tải POI qua mã QR, stream audio thuyết minh, gửi log tương tác |
+| **Quản trị viên** (Admin CMS) | Human Actor | Đăng nhập CMS, gọi API bảo mật (JWT) để CRUD di tích, tải media, cấu hình tọa độ và bán kính Geofence, xuất mã QR |
+| **Hệ thống CI/CD** (GitHub Actions Runner) | System Actor | Môi trường tự động kích hoạt khi có commit/PR: linter, unit test, integration test, build Docker, ra lệnh deploy |
 
-**Cross-cutting (dùng chung, không thuộc lớp nào):** config và kiểm tra secret, JWT/bcrypt/Fernet, audit log, rate limit, logging, `resolve_safe_path`, các background worker (`analytics_worker`, `media_cleanup_worker`, audio maintenance loop).
+### Ba tầng và thành phần
 
-### 16.3 Cấu trúc thư mục đề xuất
+| Tầng | Thành phần cốt lõi | Nhiệm vụ chính |
+|---|---|---|
+| **1. Presentation / API Controller** | Auth, Campus, POI, Media, Analytics Controller; DTO Validators; JWT Auth, Rate Limit, Error Middleware | Nhận HTTP request, validate DTO, gọi Service, đóng gói response với status code chuẩn RESTful (200, 201, 206, 304, 400, 401, 404, 500) |
+| **2. Business Logic (Service)** | AuthService, CampusService, POIService, MediaStorageService, AudioStreamService, QRCodeService, GeofenceHelper | Toàn bộ quy tắc nghiệp vụ: băm mật khẩu, xoay vòng JWT, khóa tài khoản, ETag/versioning, kiểm tra Geofence, thẩm định bitrate MP3, chunk Range Request, sinh QR, điều phối transaction |
+| **3. Data Access (Repository)** | User, Campus, POI, Media, Analytics Repository; Entities (ORM); Database Connection Pool | CRUD trực tiếp lên CSDL (SQL / ORM), quản lý connection pool và transaction |
+
+### Cấu trúc thư mục 3 lớp
 
 ```text
-backend/
-├── app/
-│   ├── main.py                  # lifespan(): validate secret, connect DB, seed, start workers, mount routers
-│   ├── core/                    # config, security (jwt, hashing, fernet), deps, exceptions, logging
-│   ├── content/
-│   │   ├── router.py            # Lớp 1
-│   │   ├── schemas.py           # request/response models
-│   │   ├── service.py           # Lớp 2
-│   │   └── store.py             # Lớp 3
-│   ├── audio/                   # router, service (TTSService), task_manager, task_store
-│   ├── localization/            # router, service, store
-│   ├── ui_i18n/
-│   ├── admin/                   # auth, RBAC, registrations, submissions, audit
-│   ├── owner/
-│   ├── ai_advisor/
-│   ├── analytics/
-│   ├── maps/
-│   ├── runtime_observability/
-│   └── static/                  # maps, audio, images
-├── tests/
-│   ├── unit/                    # test service với store giả (mock)
-│   ├── integration/             # test store với Mongo/Redis thật
-│   └── api/                     # test router qua TestClient
-├── Dockerfile
-├── requirements.txt
-└── .env.example
+vietnamquoctu-backend/
+├── .github/workflows/
+│   └── backend-ci-cd.yml            # Pipeline CI/CD hoàn chỉnh
+├── src/
+│   ├── presentation/                # TẦNG 1: Controllers
+│   │   ├── controllers/             # auth, campus, poi, media, analytics
+│   │   ├── middlewares/             # jwt-auth, rate-limit, error (Global Exception Handler)
+│   │   └── dtos/                    # DTOs và Validation Schemas
+│   ├── business-logic/              # TẦNG 2: Services
+│   │   ├── services/                # auth, campus, poi, qr-code, audio-stream, media-storage
+│   │   └── helpers/geofence.helper.ts   # Haversine và tính toán không gian
+│   ├── data-access/                 # TẦNG 3: Repositories
+│   │   ├── repositories/            # user, campus, poi, media, analytics
+│   │   ├── entities/                # ORM Models (Prisma / TypeORM)
+│   │   └── database.connection.ts   # Connection Pool
+│   ├── tests/
+│   │   ├── unit/                    # Unit Test tầng Service (Jest)
+│   │   └── integration/             # Integration Test API (Supertest)
+│   ├── app.ts
+│   └── server.ts
+├── Dockerfile                       # Multi-stage
+├── docker-compose.yml               # Cấu hình Production Server
+└── package.json
 ```
 
-### 16.4 Ví dụ một luồng xuyên 3 lớp (đề xuất): xoá POI
+### Bản đồ Use Case
 
-```python
-# ---------- Lớp 1: content/router.py ----------
-@router.delete("/admin/pois/{poi_id}", status_code=204)
-async def delete_poi(
-    poi_id: str,
-    user = Depends(require_permission("poi:delete")),
-    service: ContentService = Depends(get_content_service),
-):
-    await service.delete_poi(poi_id, actor=user)       # chỉ ủy quyền, không logic
+| UC | Tên | Actor | Chương |
+|---|---|---|---|
+| UC01 | Khởi tạo ứng dụng và cấp quyền | Khách tham quan | 01–02 |
+| UC02 | Tương tác bản đồ | Khách tham quan | 10 |
+| UC03 | Nghe thuyết minh tự động (Geofencing GPS) | Khách tham quan | 04 |
+| UC04 | Xem và nghe thủ công | Khách tham quan | 04, 05 |
+| UC05 | Quét mã QR dự phòng trong nhà (Cache-First + Deep Link) | Khách tham quan | 04, 05 |
+| UC06 | Chuyển đổi ngôn ngữ | Khách tham quan | 08 |
+| UC07 | Đăng nhập và xác thực Admin | Quản trị viên | 07 |
+| UC08 | Quản lý quần thể (Campus) | Quản trị viên | 11 |
+| UC09 | Quản lý điểm tham quan (POI) | Quản trị viên | 05, 11 |
+| UC10 | Quản lý nội dung đa ngôn ngữ và media | Quản trị viên | 06 |
+| UC11 | Tự động sinh và xuất mã QR | Quản trị viên | 06 |
+| **UC-BE-01** | Truyền phát âm thanh (Audio Range Streaming) | Khách tham quan | 06 |
+| **UC-BE-02** | Đồng bộ dữ liệu và kiểm tra phiên bản (Cache Invalidation) | Khách tham quan | 01–02, 05, 09 |
+| **UC-BE-03** | Cấp phát, làm mới, thu hồi token (Token Lifecycle) | Quản trị viên | 07 |
+| **UC-BE-04** | Tự động hóa kiểm thử và triển khai (CI/CD) | CI/CD Runner | 01–02 |
 
-# ---------- Lớp 2: content/service.py ----------
-class ContentService:
-    def __init__(self, poi_store, loc_store, version_store, media_cleanup, audit):
-        ...
+> Từ UC01 đến UC06 là hành vi phía Client. Để cân đối với Đề tài 2 (Backend), v2.1 viết lại các UC này theo **luồng xử lý 3 lớp** (xem ví dụ ở Chapter 05) và bổ sung 4 UC-BE ở trên.
 
-    async def delete_poi(self, poi_id: str, actor) -> None:
-        async with self.poi_store.transaction() as session:   # quản lý transaction ở service
-            poi = await self.poi_store.get(poi_id, session=session)
-            if not poi:
-                raise NotFoundError("POI không tồn tại")
-            await self.poi_store.delete(poi_id, session=session)
-            await self.loc_store.delete_by_poi(poi_id, session=session)   # cascade
-            await self.version_store.touch(session=session)               # đổi dataset_version
-        await self.media_cleanup.enqueue(poi)                              # dọn media sau commit
-        await self.audit.log("poi:delete", actor.id, poi_id)
+### Database Tables
 
-# ---------- Lớp 3: content/store.py ----------
-class PoiStore:
-    async def get(self, poi_id, session=None):
-        return await self.col.find_one({"_id": poi_id}, session=session)
-    async def delete(self, poi_id, session=None):
-        await self.col.delete_one({"_id": poi_id}, session=session)
+CSDL quan hệ **PostgreSQL**, truy cập qua ORM (Prisma / TypeORM) hoặc Query Builder.
+
+| Bảng | Module | Cột chính / Mục đích |
+|---|---|---|
+| `campuses` | campus | `id, name, address, latitude, longitude, boundary_polygon, status, created_at,` **`data_version`**. Quần thể, Bounding Box, trạng thái (Hoạt động / Sắp ra mắt), chuỗi phiên bản dữ liệu |
+| `pois` | poi | `id, campus_id, title_vi, title_en, description_vi, description_en, latitude, longitude, geofence_radius, qr_code_url, is_active, display_order, created_at,` **`location_type, is_deleted, deleted_at`**. Điểm tham quan; `location_type` là `OUTDOOR` (GPS) hoặc `INDOOR` (QR); xóa mềm |
+| `poi_media` | media | `id, poi_id, media_type ['IMAGE','AUDIO_VI','AUDIO_EN'], file_url, file_size, duration_seconds, display_order`. Ảnh và audio thuyết minh |
+| `admin_users` | auth | `id, username, email, password_hash, full_name, role ['SUPER_ADMIN','EDITOR'], is_active, last_login,` **`failed_login_attempts, locked_until, refresh_token_hash`**. Tài khoản quản trị, chống brute-force, refresh token |
+| `listening_analytics` | analytics | `id, poi_id, language_code, trigger_source ['GPS_GEOFENCE','QR_CODE','MANUAL_CLICK'], duration_listened_seconds, completed, created_at`. Thống kê lượt nghe (POI nào được nghe nhiều, ngôn ngữ phổ biến, thời lượng trung bình) |
+
+**Migration cập nhật schema (v2.1):**
+
+```sql
+-- 1. Chống brute-force và Refresh Token cho admin_users
+ALTER TABLE admin_users ADD COLUMN failed_login_attempts INT DEFAULT 0;
+ALTER TABLE admin_users ADD COLUMN locked_until TIMESTAMP NULL;
+ALTER TABLE admin_users ADD COLUMN refresh_token_hash VARCHAR(255) NULL;
+
+-- 2. Xóa mềm và phân loại không gian cho pois
+ALTER TABLE pois ADD COLUMN location_type VARCHAR(20) DEFAULT 'OUTDOOR'; -- 'OUTDOOR' (GPS) hoặc 'INDOOR' (QR)
+ALTER TABLE pois ADD COLUMN is_deleted BOOLEAN DEFAULT FALSE;
+ALTER TABLE pois ADD COLUMN deleted_at TIMESTAMP NULL;
+
+-- 3. Phiên bản dữ liệu cho campuses
+ALTER TABLE campuses ADD COLUMN data_version VARCHAR(50) DEFAULT 'v1.0.0';
+
+-- 4. Thống kê lượt nghe thuyết minh
+CREATE TABLE listening_analytics (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    poi_id UUID REFERENCES pois(id) ON DELETE CASCADE,
+    language_code VARCHAR(10) NOT NULL,          -- 'vi' hoặc 'en'
+    trigger_source VARCHAR(20) NOT NULL,         -- 'GPS_GEOFENCE' | 'QR_CODE' | 'MANUAL_CLICK'
+    duration_listened_seconds INT NOT NULL,
+    completed BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 ```
-
-Điểm cần nhớ khi code theo hướng này:
-
-- `NotFoundError`, `ForbiddenError`… là exception nghiệp vụ; **router/handler chung** mới map sang HTTP 404/403.
-- Service nhận store qua constructor (dependency injection của FastAPI `Depends`) để dễ mock khi test.
-- Transaction đặt ở **service** vì đó là ranh giới nghiệp vụ. Hệ thống gốc đã yêu cầu `assert_transaction_capability()` ở startup, nên MongoDB phải chạy replica set.
-
-### 16.5 Áp dụng 3 lớp cho các domain khó
-
-| Domain | Lớp 1 | Lớp 2 | Lớp 3 |
-|---|---|---|---|
-| **Audio TTS** | `POST /audio/tts`, SSE stream | `TTSService`, `AudioTaskManager` (Semaphore 3, pause/resume/cancel, recovery) | `task_store`, file MP3 (cache key MD5), Edge-TTS adapter |
-| **Localization** | `on-demand`, `prepare-hotset`, `warmup` | Hotset, rate limit 30 req/10 phút, gate "English ready" | `poi_localizations`, `localization_rate_limits`, dịch qua deep-translator |
-| **Auth/RBAC** | login, refresh, `/auth/me` | Cấp JWT, kiểm role/permission, owner gate | `admin_users`, `roles`, `audit_logs`, Fernet cho PII |
-| **AI Advisor** | `/ai/usage`, `/ai/enhance-description` | Quota theo ngày, dựng prompt, fallback provider | `ai_usage_limits`, Gemini/ProxyPal client |
-| **Maps** | `/static/maps/*`, `/api/v1/maps/*` | Chọn manifest, danh sách pack | File PMTiles, `resolve_safe_path` |
-
-### 16.6 Chiến lược test theo lớp
-
-| Lớp | Loại test | Công cụ gợi ý | Mục tiêu |
-|---|---|---|---|
-| Service | Unit, store/adapter giả | `pytest`, `pytest-asyncio` | Phủ cao nhất: fallback, activation gate, quota, RBAC |
-| Store | Integration với Mongo (replica set) + Redis thật | `pytest` + container service | Index, `$geoNear`, transaction, TTL |
-| Router | API test | FastAPI `TestClient`/`httpx` | Schema, status code, ETag/304, cookie auth |
-| Toàn hệ thống | Smoke, perf | Script smoke, benchmark | `/health/ready`, `/poi/load-all` |
-
-### 16.7 Checklist khi thêm một tính năng mới
-
-1. Tạo schema request/response (lớp 1).
-2. Viết hàm store tối thiểu, thêm index nếu cần (lớp 3).
-3. Viết service chứa nghiệp vụ, transaction, audit (lớp 2).
-4. Viết router mỏng, gắn `require_permission` đúng permission (lớp 1).
-5. Nếu thêm permission mới: cập nhật danh sách permission tĩnh và seed role (`ensure_roles()`).
-6. Viết test cho service trước, rồi store, rồi router.
-7. Nếu đổi dữ liệu POI công khai: nhớ cập nhật `content_dataset_versions` để delta sync hoạt động.
-8. Cập nhật tài liệu API và `.env.example` nếu thêm biến môi trường.
 
 ---
 
-## 17. CI/CD
+## Chapter 01–02 — Luồng Khởi Động (Backend + Frontend)
 
-> **Hiện trạng theo tài liệu gốc:** repo đã có `.github/workflows/quality.yml` và `perf-smoke.yml`; pipeline chất lượng frontend là `lint:quality → build → test:node:regressions / test:smoke / perf:benchmark`. Tài liệu gốc **không mô tả** phần CD (đóng gói, deploy). Phần CD và workflow cho backend bên dưới là **đề xuất thiết kế**.
+### Backend Startup & Deployment Sequence (CI/CD)
 
-### 17.1 Tổng quan pipeline
+Toàn bộ quy trình được khai báo bằng YAML: `.github/workflows/backend-ci-cd.yml` (UC-BE-04, Actor: GitHub Actions Runner). Mọi commit phải vượt **100% test tự động** trước khi merge vào nhánh production.
 
 ```mermaid
 flowchart LR
-    A[Push / Pull Request] --> B[CI: lint + type check]
-    B --> C[Unit test]
-    C --> D[Integration test: Mongo replica set + Redis]
-    D --> E[Security scan]
-    E --> F[Build Docker image]
-    F -->|merge vào main| G[Push registry]
-    G --> H[Deploy staging]
-    H --> I[Smoke test /health/ready]
-    I -->|duyệt thủ công| J[Deploy production]
-    J --> K[Smoke test + theo dõi]
-    K -->|lỗi| L[Rollback bản trước]
+    A["Push / Pull Request"] --> B["CI 1: Linter + Format"]
+    B --> C["CI 2: Unit Test<br/>coverage >= 80%"]
+    C --> D["CI 3: Integration Test<br/>Supertest + PostgreSQL service"]
+    D -->|"fail: chặn merge"| X["Báo lỗi"]
+    D -->|"merge vào main"| E["CI 4: Build Docker Image<br/>multi-stage"]
+    E --> F["CD 1: Push Docker Hub<br/>GitHub Secrets"]
+    F --> G["CD 2: SSH Deploy VPS<br/>Docker Compose"]
+    G --> H["Container mới chạy"]
 ```
 
-### 17.2 CI (chạy trên mỗi PR)
-
-| Bước | Nội dung | Công cụ gợi ý |
+| Giai đoạn | Công cụ / Bước thực thi | Mục tiêu và tiêu chí nghiệm thu |
 |---|---|---|
-| 1. Lint & format | Kiểm tra style, import | `ruff`, `black --check` |
-| 2. Type check | Kiểm tra kiểu | `mypy` (tuỳ chọn) |
-| 3. Unit test | Test lớp service bằng store giả | `pytest` |
-| 4. Integration test | Test store/router với Mongo **replica set** + Redis | service container |
-| 5. Security | Quét dependency và secret rò rỉ | `pip-audit`, `gitleaks` |
-| 6. Build | Build Docker image để chắc chắn đóng gói được | `docker build` |
-| 7. Frontend (có sẵn) | `lint:quality` → `build` → `test:node:regressions`, `test:smoke`, `perf:benchmark` | `quality.yml`, `perf-smoke.yml` |
+| **Cục bộ** | Nhánh tính năng, Unit Test tầng Service, Integration Test cho API | Dev tự kiểm thử trước khi push |
+| **CI Step 1** | Static Code Analysis (ESLint / Prettier) | Kiểm tra coding style, lỗi cú pháp, biến không dùng |
+| **CI Step 2** | Unit Testing (Jest) | Test độc lập logic BLL: Haversine, validate bán kính Geofence, chữ ký JWT. **Coverage ≥ 80%** |
+| **CI Step 3** | Integration Testing (Supertest) | Test luồng gọi API tới Controllers với **PostgreSQL thật** chạy bằng Service Container |
+| **CI Step 4** | Build & Docker Containerization | Image tối ưu (multi-stage) |
+| **CD Step 1** | Push to Docker Hub / Registry | Đẩy image đã kiểm định, thông tin đăng nhập lấy từ GitHub Secrets |
+| **CD Step 2** | Automated Deploy to Server | SSH vào VPS, pull image mới, khởi động lại container bằng Docker Compose |
 
-**Quy tắc merge:** bật branch protection, bắt buộc CI xanh và ít nhất 1 review.
-
-### 17.3 Ví dụ workflow CI backend (đề xuất)
+**Workflow mẫu** (`.github/workflows/backend-ci-cd.yml`):
 
 ```yaml
-# .github/workflows/backend-ci.yml
-name: backend-ci
+name: Backend 3-Tier CI/CD Pipeline
+
 on:
+  push:
+    branches: [ main, develop ]
   pull_request:
-    paths: ["backend/**"]
-  push:
-    branches: [main]
-    paths: ["backend/**"]
+    branches: [ main ]
 
 jobs:
-  test:
+  continuous-integration:
     runs-on: ubuntu-latest
-    defaults: { run: { working-directory: backend } }
     services:
-      mongo:
-        image: mongo:7
-        ports: ["27017:27017"]
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: test_db
+          POSTGRES_USER: test_user
+          POSTGRES_PASSWORD: test_password
+        ports:
+          - 5432:5432
         options: >-
-          --health-cmd "mongosh --quiet --eval 'db.runCommand({ping:1})'"
-          --health-interval 10s --health-retries 5
-      redis:
-        image: redis:7
-        ports: ["6379:6379"]
-    env:
-      MONGO_URL: mongodb://localhost:27017/?replicaSet=rs0
-      REDIS_URL: redis://localhost:6379/0
-      JWT_SECRET: ci-only-secret
-      REFRESH_TOKEN_SECRET: ci-only-refresh
-      SECRET_KEY: ci-only-key
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with: { python-version: "3.11", cache: pip }
-      - run: pip install -r requirements.txt pytest pytest-asyncio ruff pip-audit
-      - run: ruff check .
-      - run: pip-audit -r requirements.txt
-      # Mongo trong CI cần khởi tạo replica set để transaction hoạt động:
-      - run: |
-          docker exec $(docker ps -qf ancestor=mongo:7) \
-            mongosh --eval 'rs.initiate({_id:"rs0",members:[{_id:0,host:"localhost:27017"}]})'
-      - run: pytest tests/unit tests/api
-      - run: pytest tests/integration
-```
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
 
-> Lưu ý: việc khởi tạo replica set trong service container cần điều chỉnh theo cách chạy Mongo (ví dụ chạy với `--replSet rs0`). Hãy kiểm thử workflow trên repo thật.
+      - name: Setup Node.js Environment
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18.x
+          cache: 'npm'
 
-### 17.4 CD (đề xuất)
+      - name: Install Dependencies
+        run: npm ci
 
-**Đóng gói bằng Docker:**
+      - name: Step 1 - Static Code Analysis (Linter)
+        run: npm run lint
 
-```dockerfile
-# backend/Dockerfile
-FROM python:3.11-slim
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-COPY app ./app
-EXPOSE 8000
-HEALTHCHECK CMD python -c "import urllib.request as u; u.urlopen('http://localhost:8000/health')"
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
-```
+      - name: Step 2 - Unit Tests (Service Layer - Jest)
+        run: npm run test:unit -- --coverage
+        env:
+          CI: true
 
-**Workflow deploy (khung):**
+      - name: Step 3 - Integration Tests (Supertest with Postgres Service)
+        run: npm run test:integration
+        env:
+          DATABASE_URL: postgresql://test_user:test_password@localhost:5432/test_db
+          JWT_SECRET: test_jwt_secret_key_12345
 
-```yaml
-# .github/workflows/backend-cd.yml
-name: backend-cd
-on:
-  push:
-    branches: [main]
-    paths: ["backend/**"]
+      - name: Step 4 - Build Docker Image (Multi-stage)
+        run: docker build -t vietnamquoctu-backend:latest .
 
-jobs:
-  build-push:
+  continuous-deployment:
+    needs: continuous-integration
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
-    permissions: { contents: read, packages: write }
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/login-action@v3
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/build-push-action@v6
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
+
+      - name: Build and Push Docker Image
+        uses: docker/build-push-action@v5
         with:
-          context: backend
+          context: .
           push: true
-          tags: ghcr.io/${{ github.repository }}/api:${{ github.sha }}
+          tags: ${{ secrets.DOCKER_HUB_USERNAME }}/vietnamquoctu-backend:latest
 
-  deploy-staging:
-    needs: build-push
-    runs-on: ubuntu-latest
-    environment: staging
-    steps:
-      - run: echo "Deploy image :${{ github.sha }} lên staging (SSH/compose/k8s tuỳ hạ tầng)"
-      - run: |
-          for i in {1..12}; do
-            curl -fsS https://staging.example.com/health/ready && exit 0
-            sleep 5
-          done
-          exit 1
-
-  deploy-production:
-    needs: deploy-staging
-    runs-on: ubuntu-latest
-    environment: production      # cấu hình "required reviewers" để duyệt tay
-    steps:
-      - run: echo "Deploy cùng image đã test ở staging"
-      - run: curl -fsS https://api.example.com/health/ready
+      - name: Deploy to VPS Server via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            cd /app/vietnamquoctu-backend
+            docker pull ${{ secrets.DOCKER_HUB_USERNAME }}/vietnamquoctu-backend:latest
+            docker compose down
+            docker compose up -d --remove-orphans
+            docker system prune -f
 ```
 
-**Nguyên tắc CD:**
+> ⚠️ **Hai điểm cần lưu ý (nhận xét của tài liệu này, không có trong báo cáo):** (1) script deploy dùng `docker compose down` rồi `up` nên dịch vụ **bị ngắt trong lúc khởi động lại**, mâu thuẫn với mục tiêu Zero-Downtime / rolling update của PRD. Muốn đạt đúng mục tiêu cần reverse proxy kèm blue-green hoặc chạy `up -d` thay cho `down`. (2) Chỉ gắn tag `latest` khiến khó rollback; nên gắn thêm tag theo commit SHA.
 
-- **Build một lần, deploy nhiều nơi:** cùng một image (tag = commit SHA) đi qua staging rồi production.
-- **Dùng `/health/ready` làm readiness check:** endpoint này đã có sẵn, và startup đã fail-fast nếu thiếu secret hoặc Mongo không hỗ trợ transaction, nên deploy lỗi cấu hình sẽ không nhận traffic.
-- **Secrets** đặt trong GitHub Environments/secret manager, không commit: `JWT_SECRET`, `REFRESH_TOKEN_SECRET`, `SECRET_KEY`, khoá Fernet, API key Gemini/MapTiler.
-- **Rollback:** giữ vài image gần nhất, rollback bằng cách deploy lại tag trước.
+**Khởi tạo runtime backend** *(thứ tự cụ thể là đề xuất; tài liệu gốc không mô tả chi tiết)*: kết nối PostgreSQL qua connection pool → gắn JWT Auth, Rate Limit, DTO Validators và Global Exception Handler → mount các route dưới `/api/v1/*`.
 
-### 17.5 Những điểm riêng của hệ thống này cần lưu ý khi triển khai
+### Frontend Startup Flow
 
-| Vấn đề | Lý do | Gợi ý xử lý |
-|---|---|---|
-| MongoDB phải hỗ trợ transaction | Startup gọi `assert_transaction_capability()`; xoá POI dùng transaction | Dùng replica set ở mọi môi trường, kể cả CI |
-| Thiếu secret → app không chạy | Fail-fast ở non-dev | Kiểm tra secret trong bước deploy trước khi chạy |
-| Seed chạy mỗi lần khởi động | `ensure_roles()`, `ensure_super_admin()` | Giữ các hàm này idempotent; kiểm tra `SUPERADMIN_BOOTSTRAP_MODE` trên production |
-| Dữ liệu tĩnh lớn | Map pack PMTiles, audio MP3, ảnh nằm ở `static/` | Dùng volume bền vững hoặc S3-compatible; không bake vào image; phục vụ Range Request qua CDN/reverse proxy |
-| Audio task đang chạy khi redeploy | Task có heartbeat 5s, stale sau 5 phút, có `recover_after_restart()` | Cho phép graceful shutdown; sau deploy kiểm tra task được khôi phục |
-| Background worker khi chạy nhiều instance | Mỗi instance đều khởi động `analytics_worker`, `media_cleanup_worker`, maintenance loop *(suy luận từ lifespan, cần xác nhận trong code)* | Kiểm tra cơ chế khoá/leader trước khi scale ngang, hoặc tách worker thành service riêng |
-| Frontend và backend lệch phiên bản | Delta sync và Service Worker phụ thuộc hợp đồng API | Deploy backend tương thích ngược trước, frontend sau; `APP_BUILD_SYNC` dọn cache cũ sau deploy |
-| Cache bản đồ/audio | Asset `immutable`, manifest `no-cache` | Version hoá tên file; không ghi đè file cũ |
+```
+Quét QR / mở link → Welcome Screen → "Bắt đầu chuyến chiêm bái" → Xin quyền GPS → Kiểm tra version → (cần thì) GET /pois → LocalStorage → Render bản đồ
+```
 
-### 17.6 Lộ trình áp dụng đề xuất
+| Bước | Mô tả |
+|---|---|
+| 🔊 **Mở khóa Autoplay** | Nút "Bắt đầu chuyến chiêm bái" khởi tạo `AudioContext` và phát buffer im lặng dài **0.1 giây**, đánh dấu trình duyệt ở trạng thái *User Activated* để các bài thuyết minh Geofencing tự phát suốt phiên tham quan (Safari iOS, Chrome Android) |
+| 🧭 **Cấp quyền GPS** | Chọn *Cho phép* → hiện bản đồ. Chọn *Từ chối* → hướng dẫn bật lại quyền, vẫn cho khám phá thủ công hoặc quét QR |
+| 🔄 **Kiểm tra phiên bản (UC-BE-02)** | Gửi request nhẹ (payload < 100 byte) `GET /api/v1/campuses/viet-nam-quoc-tu/version`. Trùng version trong LocalStorage thì giữ cache; server có bản mới thì tự tải lại danh sách POI |
+| 💾 **Tải dữ liệu** | `GET /api/v1/campuses/viet-nam-quoc-tu/pois` (kèm `If-None-Match`), rồi lưu POI vào RAM / LocalStorage để dùng cả phiên |
+| 📴 **Mất mạng khi tải** | Có cache LocalStorage thì dùng tạm; không có thì báo lỗi mạng kèm nút **Thử lại** |
+| 🗺️ **Render bản đồ** | Hiển thị chấm xanh vị trí kèm vòng sai số GPS và các Marker POI |
 
-1. **Tuần 1:** hoàn thiện CI backend (lint, unit test, integration có Mongo replica set).
-2. **Tuần 2:** thêm Dockerfile, build và push image lên registry.
-3. **Tuần 3:** môi trường staging, tự động deploy kèm smoke test `/health/ready`.
-4. **Tuần 4:** production có bước duyệt tay, quy trình rollback, cảnh báo/giám sát.
+> **Business rule:** nút "Bắt đầu" bắt buộc kích hoạt một thao tác âm thanh rỗng để vượt chính sách Autoplay (BR01-1); dữ liệu POI lưu LocalStorage để tái sử dụng xuyên suốt phiên (BR01-2).
 
 ---
 
-*Tài liệu được tổng hợp từ bản presentation của hệ thống. Các con số và tên thành phần lấy nguyên từ nguồn; phần 15, 16 (ví dụ code, cấu trúc thư mục) và 17 (CD) là đề xuất bổ sung.*
+## Chapter 04 — GPS + Geofence + Audio Narration
+
+Luồng Geofence xử lý đồng thời nhiễu GPS, tiết kiệm pin và chống phát lặp. Ba con số cần nhớ: cập nhật vị trí **1–3 giây**, bán kính kích hoạt **5–100 m** (cấu hình theo từng POI), vùng đệm reset **15 m**. Toàn bộ phép so khớp Haversine chạy **100% phía client** (BR03-3).
+
+### 6 Giai Đoạn Xử Lý
+
+1. **Khởi tạo và mở khóa audio**: Welcome Screen → bấm "Bắt đầu chuyến chiêm bái" → `AudioContext` rỗng.
+2. **Lấy GPS và nạp dữ liệu**: xin quyền vị trí → kiểm tra version → gọi API POI → lưu LocalStorage.
+3. **Giám sát vị trí**: `watchPosition` chu kỳ 1–3 giây; mỗi tọa độ mới `(lat, lng)` tính khoảng cách `d` tới từng POI bằng **Haversine**; vẽ vòng sai số (accuracy radius).
+4. **Kiểm tra Geofence**: kích hoạt khi `d ≤ R` **và** POI chưa nằm trong `Visited_POIs`. Nhiều POI cùng thỏa điều kiện thì phát POI **gần nhất**, các POI còn lại vào hàng đợi.
+5. **Kích hoạt thuyết minh**: đọc ngôn ngữ hiện tại (VI/EN) → rung thiết bị (haptic) → popup POI → tự phát audio → thêm POI vào `Visited_POIs` → icon chuyển sang *Đang xem*.
+6. **Hoàn tất và reset**: audio phát hết → icon *Đã xem*. Khi du khách ra xa `d > R + 15 m` thì gỡ POI khỏi `Visited_POIs` để có thể kích hoạt lại.
+
+```
+a = sin²(Δlat / 2) + cos(lat1) · cos(lat2) · sin²(Δlon / 2)
+c = 2 · atan2(√a, √(1 − a))
+d = R_earth · c          (R_earth ≈ 6.371.000 m)
+```
+
+Với 15–20 POI, thời gian tính toán dưới **0.5 ms**.
+
+### 3 Chế Độ Phát Audio
+
+| Ưu tiên | Chế độ | Kích hoạt | Hành vi |
+|---|---|---|---|
+| 1 (cao nhất) | **QR Indoor** (UC05) | Du khách bấm "Quét mã QR", camera đọc `POI_ID` | **Cache-First:** có POI trong LocalStorage thì mở ngay. **Cold-start (chưa có cache, quét thẳng từ camera điện thoại):** gọi `GET /api/v1/pois/:id`, backend trả POI đó **kèm toàn bộ danh sách POI** để client nạp bổ sung vào LocalStorage. Sau đó bỏ qua GPS, ngắt audio khác, phát audio, ghi `POI_ID` vào `Visited_POIs` để GPS không phát lặp khi bước ra ngoài |
+| 2 | **Geofencing GPS** (UC03) | `d ≤ R` ngoài trời | Rung, popup, tự phát audio theo ngôn ngữ hiện tại |
+| 3 | **Thủ công** (UC04) | Chạm Marker POI → Bottom Drawer → "Nghe thuyết minh" | Trình phát đủ Play / Pause / Tua 10s / Seekbar; đóng Drawer thì dừng audio |
+| Fallback | **Chỉ văn bản** | Audio lỗi hoặc trình duyệt chặn phát | Audio lỗi: hiện bài viết kèm "Không thể tải audio". Bị chặn Autoplay: hiện nút lớn "Bấm để nghe thuyết minh" |
+
+> **Quy tắc đơn âm:** tại mỗi thời điểm toàn hệ thống chỉ có **một** audio được phát (BR04-1). Chọn POI khác khi đang phát thì audio cũ dừng và chuyển sang audio mới.
+
+> **Chống nhấp nháy (Hysteresis Reset):** sai số GPS tự nhiên ±3 đến ±8 m có thể làm khoảng cách nhảy giữa 14.8 m và 15.2 m khi `R = 15 m`, gây audio tắt rồi phát lại liên hồi. Vì vậy POI chỉ được gỡ khỏi `Visited_POIs` khi `d_current > R + 15 m`.
+
+> **Phân loại không gian:** cột `pois.location_type` (`OUTDOOR` / `INDOOR`) cho biết POI dùng GPS hay QR. Ví dụ quảng trường lớn trước Chánh Điện cần `R` khoảng 50 m, còn các gian thờ nhỏ trong Nhà Tổ cách nhau chỉ 5 m.
+
+---
+
+## Chapter 05 — Module Content — POI Lifecycle
+
+| Endpoint | Chức năng |
+|---|---|
+| `GET /api/v1/campuses/viet-nam-quoc-tu/pois` | API công khai nặng nhất: trả toàn bộ POI (chỉ `is_active = true` và `is_deleted = false`), tọa độ, media. Hỗ trợ `If-None-Match` / **ETag**, dữ liệu chưa đổi thì trả `304 Not Modified` |
+| `GET /api/v1/campuses/viet-nam-quoc-tu/version` | Trả `{ "version": "...", "last_updated": "..." }` để client biết cần tải lại cache hay không (UC-BE-02) |
+| `GET /api/v1/pois/:id` | Chi tiết một POI **kèm toàn bộ danh sách POI**, phục vụ quét QR lần đầu khi LocalStorage rỗng (Deep Link) |
+| `POST /api/v1/admin/pois` · `PUT /api/v1/admin/pois/:id` | *(JWT)* Thêm, sửa POI: tọa độ, bán kính Geofence, nội dung song ngữ. Mỗi lần đổi dữ liệu, `campuses.data_version` được cập nhật |
+| `DELETE /api/v1/admin/pois/:id` | *(JWT)* **Xóa mềm**: chỉ đặt `is_deleted = true, deleted_at = NOW()` trong một SQL Transaction. Không xóa file media ngay |
+
+### Ví dụ luồng 3 lớp: lấy dữ liệu POI khuôn viên
+
+1. **Presentation:** client gọi `GET /api/v1/campuses/viet-nam-quoc-tu/pois` kèm `If-None-Match`. `CampusController` gọi `CampusService.getCampusPOIs(campusSlug, clientETag)`.
+2. **Business Logic:** `CampusService` kiểm tra ETag trong Redis / Memory Cache. Chưa đổi → trả `304 Not Modified`, kết thúc sớm. Đã đổi → gọi `POIRepository.findActiveByCampusId(campusId)`.
+3. **Data Access:** `POIRepository` truy vấn (ORM Prisma / TypeORM), tương đương:
+
+```sql
+SELECT * FROM pois
+JOIN poi_media ON pois.id = poi_media.poi_id
+WHERE campus_id = ? AND is_deleted = false AND is_active = true;
+```
+
+4. **Response:** DTO đóng gói JSON gồm thông tin song ngữ (VI/EN), tọa độ, danh sách URL media và ETag mới; Controller trả `200 OK`.
+
+### Xóa mềm giải quyết lỗi giao dịch media
+
+Database Transaction chỉ rollback được bản ghi SQL, **không rollback được thao tác xóa file** trên Cloudinary / S3. Xóa file trước mà DB lỗi thì mất file vĩnh viễn; commit DB trước mà xóa cloud timeout thì sinh rác (Orphaned Media). Cách xử lý: Soft Delete trong một transaction, rồi **Background Worker quét định kỳ 30 ngày** để dọn file vật lý của các bản ghi đã xóa mềm.
+
+**Validate ở Service Layer (DTO + nghiệp vụ):**
+
+- Kinh độ `[-180, 180]`, vĩ độ `[-90, 90]`, tọa độ lưu **≥ 6 chữ số thập phân** (sai số < 0.1 m).
+- Bán kính Geofence trong khoảng `5 ≤ R ≤ 100` (m).
+- Tọa độ phải nằm trong ranh giới khuôn viên, ngoài ranh giới trả lỗi `Tọa độ ngoài ranh giới Việt Nam Quốc Tự`.
+- Độ dài bài viết mô tả được kiểm tra; mô tả tiếng Việt bắt buộc, tiếng Anh khuyến khích.
+
+### 3-Tier Content Fallback
+
+| Tầng | Nội dung | Mô tả |
+|---|---|---|
+| **Tier 1** | Đúng ngôn ngữ đã chọn | Trả bài viết và audio theo ngôn ngữ du khách chọn (`*_vi` hoặc `*_en`) |
+| **Tier 2** | Tiếng Việt mặc định | POI chưa có bản dịch tiếng Anh: hiện nội dung tiếng Việt kèm ghi chú nhỏ `Chưa có bản dịch tiếng Anh` |
+| **Tier 3** | Chỉ văn bản | Audio không tải được: vẫn hiển thị ảnh và bài viết mô tả |
+
+---
+
+## Chapter 06 — Module Audio / Media & QR Code
+
+Hệ thống dùng **tệp MP3 do Admin tải lên** cho từng ngôn ngữ (không sinh giọng đọc tự động), phục vụ qua **Range Streaming**, cùng `QRCodeService` để sinh mã in dán thực địa.
+
+### MediaStorageService — Xử lý tệp
+
+| Hạng mục | Quy tắc |
+|---|---|
+| Ảnh minh họa | JPG, PNG, WebP; **≤ 5 MB** mỗi ảnh; có nén ảnh |
+| Audio thuyết minh | **MP3**, bitrate **128 – 320 kbps**, **≤ 20 MB** mỗi tệp. Bitrate được thẩm định bằng thư viện đọc metadata (`music-metadata` trên Node.js, `taglib-sharp` trên .NET) |
+| Đặt tên chuẩn | `audio_vi.mp3`, `audio_en.mp3` |
+| Lưu trữ | Local Storage hoặc Cloudinary / S3, metadata ở bảng `poi_media` |
+| API | `POST /api/v1/admin/pois/:id/media` *(JWT, Multipart Form-Data)* |
+| Lỗi | Sai định dạng, sai bitrate hoặc vượt dung lượng → `400 Bad Request` kèm thông báo chi tiết |
+| Dọn rác | Background Worker quét bản ghi xóa mềm mỗi 30 ngày rồi xóa file vật lý |
+
+**Upload Pipeline:**
+
+```
+Admin chọn file → Controller nhận Multipart → MediaStorageService (kiểm tra định dạng, dung lượng, bitrate, chuẩn hóa tên) → Repository (lưu file + ghi poi_media) → Trả URL / thông báo thành công
+```
+
+### AudioStreamService — Audio Range Streaming (UC-BE-01)
+
+Safari iOS gửi **Range Request** khi người dùng tua Seekbar. Nếu server chỉ trả nguyên file, trình duyệt phải tải lại từ đầu, gây lag và không tua được. Vì vậy backend hỗ trợ **HTTP 206 Partial Content**.
+
+1. Client gửi `GET /api/v1/media/audio/:fileId` kèm header `Range: bytes=start-end`.
+2. `MediaController` chuyển tham số cho `AudioStreamService`.
+3. Service phân tích header `Range`, tính chunk size, mở stream đọc dữ liệu nhị phân từ Repository / Storage Driver.
+4. Controller trả `206 Partial Content` kèm `Content-Range`, `Accept-Ranges: bytes`, `Content-Length` và stream audio.
+
+### QRCodeService — Sinh và xuất mã QR
+
+| Hạng mục | Quy tắc |
+|---|---|
+| Nội dung mã | URL `https://.../poi/{poi_id}` hoặc chuỗi `POI_ID` chuẩn hóa. Mỗi POI có **một** mã duy nhất |
+| Định dạng xuất | **PNG** 1000×1000 px hoặc **SVG** vector; chọn nhiều POI thì nén thành `.zip` |
+| Mức sửa lỗi | Error Correction Level **Q hoặc H** (25% – 30%), vẫn đọc tốt khi bảng bị trầy nhẹ |
+| Trình bày | Gắn nhãn tên di tích và logo trang nghiêm |
+| API | `GET /api/v1/admin/pois/:id/qrcode` *(JWT)* |
+
+> Vì mã QR chỉ chứa ID hoặc URL cố định, nội dung trên server thay đổi thì **mã đã in vẫn dùng được, không cần in lại** (A1 của UC11).
+
+---
+
+## Chapter 07 — Authentication & RBAC
+
+| 🔐 Token Lifecycle (UC-BE-03) | 🔑 Phân quyền |
+|---|---|
+| **Access Token** hạn **15 phút** | `admin_users.role` gồm `SUPER_ADMIN` và `EDITOR` |
+| **Refresh Token** hạn tối đa **7 ngày**, lưu **hash** trong `admin_users.refresh_token_hash`, gửi qua **HttpOnly Cookie** (chống XSS) | `JWT Auth Middleware` ở Tầng 1 chặn mọi route `/api/v1/admin/*` khi thiếu hoặc sai token |
+| `POST /api/v1/auth/refresh`: đổi cặp token mới (**Token Rotation**), Admin không cần nhập lại mật khẩu | Du khách (End-User) **không cần đăng nhập** |
+| `POST /api/v1/auth/logout`: xóa Refresh Token trong CSDL, vô hiệu hóa phiên ngay | |
+
+**Luồng đăng nhập (UC07):**
+
+```
+Admin nhập tài khoản → Controller (POST /auth/login) → AuthService (kiểm tra user, khóa tài khoản, so khớp bcrypt) → ký Access + Refresh Token → trả token → CMS vào Dashboard
+```
+
+| Tình huống | Xử lý |
+|---|---|
+| Sai tài khoản hoặc mật khẩu | `401`, thông báo `Tài khoản hoặc mật khẩu không chính xác`; tăng `failed_login_attempts` |
+| Sai quá **5 lần** | Đặt `locked_until` = hiện tại + **15 phút** (chống brute-force); `rate-limit.middleware` hỗ trợ ở Tầng 1 |
+| Access Token hết hạn | Gọi `/auth/refresh`; Refresh Token hết hạn hoặc bị thu hồi thì `401` → về trang đăng nhập |
+| Mật khẩu | bcrypt, salt round ≥ 10 |
+
+> **Lưu ý:** báo cáo v2.1 chưa đặc tả ma trận quyền chi tiết cho `SUPER_ADMIN` và `EDITOR`, cần bổ sung khi triển khai. Vì mỗi Admin chỉ có một cột `refresh_token_hash`, thiết kế hiện tại ngầm hiểu **một phiên đăng nhập hoạt động cho mỗi tài khoản**.
+
+---
+
+## Chapter 08 — Localization — Đa Ngôn Ngữ 2 Làn
+
+MVP hỗ trợ **Tiếng Việt (VI)** và **Tiếng Anh (EN)**, thiết kế để mở rộng sang Trung (Phồn thể / Giản thể), Nhật, Hàn, Pháp.
+
+| Làn | Phạm vi | Cách hoạt động |
+|---|---|---|
+| **Làn 1 — Content Locale** | Bài viết, tên di tích, audio | Mỗi POI lưu `title_vi / title_en`, `description_vi / description_en`, `audio_vi.mp3 / audio_en.mp3`. Tiếng Việt bắt buộc, tiếng Anh khuyến khích (thiếu thì cảnh báo `Thiếu nội dung tiếng Anh`) |
+| **Làn 2 — UI Labels** | Nhãn giao diện | Biến trạng thái ngôn ngữ toàn cục (i18n state), lưu vào LocalStorage |
+
+**Luồng đổi ngôn ngữ (UC06):** bấm biểu tượng lá cờ → chọn Tiếng Việt 🇻🇳 hoặc English 🇬🇧 → lưu LocalStorage → cập nhật nhãn giao diện và bài viết → đổi đường dẫn audio sang `audio_en.mp3` hoặc `audio_vi.mp3`.
+
+> **Điểm mấu chốt:** đang phát audio mà đổi ngôn ngữ thì hệ thống **dừng audio cũ, nạp audio ngôn ngữ mới và đặt ở đầu bài sẵn sàng phát**. Ngôn ngữ mới áp dụng cho mọi lần kích hoạt Geofence hoặc quét QR tiếp theo. Dữ liệu thống kê lượt nghe ghi nhận kèm `language_code`.
+
+---
+
+## Chapter 09 — Offline-First — 4 Lớp Dự Phòng
+
+Mục tiêu: giảm chi phí tính toán cho server và giữ trải nghiệm mượt trên mạng 4G/5G chập chờn.
+
+| Lớp | Tên | Mô tả |
+|---|---|---|
+| **Lớp 1** | Tải một lần + Đồng bộ phiên bản | Tọa độ và metadata POI tải **một lần** lúc mở Web App, lưu RAM / LocalStorage. Khi Ban Quản trị đổi nội dung hoặc vị trí, `data_version` trên server đổi theo; client kiểm tra bằng `GET .../version` và ETag rồi **tự tải lại** (Cache Invalidation, UC-BE-02) |
+| **Lớp 2** | Tính toán Client-side | Haversine chạy trên trình duyệt: giảm 100% chi phí tính toán server, phản hồi tức thì, tiết kiệm pin và băng thông, backend không quá tải ở ngày đại lễ |
+| **Lớp 3** | Dự phòng mạng và bản đồ | Mất mạng: dùng cache LocalStorage (không có thì báo lỗi + nút **Thử lại**). Lỗi tải Map Tile: hiển thị nền sơ đồ vector tối giản lưu sẵn trong máy. Quét QR khi LocalStorage rỗng (**cold-start**) được xử lý bằng `GET /pois/:id` |
+| **Lớp 4** | Dự phòng định vị | GPS mất hoặc sai số **> 50 m**: cảnh báo `Tín hiệu GPS không ổn định`, ẩn chấm xanh, chuyển sang **quét QR** hoặc chọn POI thủ công |
+
+> **Ghi chú phạm vi:** tài liệu nguồn nêu lưu dữ liệu POI vào LocalStorage, nhưng **chưa quy định** Service Worker / PWA, cache tệp ảnh và MP3 offline hay gói bản đồ offline. Nếu cần các tính năng này, bổ sung vào PRD trước khi triển khai.
+
+---
+
+## Chapter 10 — Bản Đồ Số & API Service
+
+### 3 trạng thái POI
+
+| Trạng thái | Màu icon | Ý nghĩa |
+|---|---|---|
+| **Chưa xem** | Xám / Vàng nhạt | Du khách chưa nghe thuyết minh |
+| **Đang xem / Đang phát** | Đỏ cam nhấp nháy | Audio đang phát |
+| **Đã xem** | Xanh lá | Audio đã phát hết |
+
+**Tính năng bản đồ phía du khách (UC02):** sơ đồ mặt bằng khuôn viên tông màu trang nhã; chấm xanh vị trí kèm vòng sai số GPS tự cập nhật; phóng to, thu nhỏ, xoay, kéo; **Bounding Box** giới hạn vùng xem quanh khuôn viên; chạm POI để mở Card tóm tắt và Drawer chi tiết.
+
+**Bản đồ phía Admin (UC09):** bản đồ vệ tinh / sơ đồ, nhấp hoặc kéo thả Marker để lấy kinh độ, vĩ độ chính xác 6 chữ số thập phân; chọn `location_type` (`OUTDOOR` / `INDOOR`); cấu hình bán kính và hiển thị vòng tròn Geofence trực quan.
+
+**POI trong MVP (8 – 10 điểm):** Cổng Tam Quan, Bảo Tháp 13 Tầng, Đại Chánh Điện, Tháp Đại Hồng Chung, Nhà Tổ, Phòng Trưng Bày Văn Hóa Phật Giáo, Thư Viện Phật Học, Vườn Cảnh Quan. Khu vực **trong nhà** cần mã QR dự phòng: Đại Chánh Điện, Phòng Trưng Bày, Thư Viện.
+
+### Backend API Service
+
+| Endpoint | Mô tả | Quyền |
+|---|---|---|
+| `POST /api/v1/auth/login` | Đăng nhập quản trị, cấp Access + Refresh Token | Công khai |
+| `POST /api/v1/auth/refresh` | Làm mới token (Token Rotation) | Refresh Token (Cookie) |
+| `POST /api/v1/auth/logout` | Thu hồi Refresh Token | Đã đăng nhập |
+| `GET /api/v1/campuses/viet-nam-quoc-tu/version` | Kiểm tra phiên bản dữ liệu (payload < 100 byte) | Công khai |
+| `GET /api/v1/campuses/viet-nam-quoc-tu/pois` | Tải toàn bộ POI + media (ETag / 304) | Công khai |
+| `GET /api/v1/pois/:id` | Chi tiết POI kèm toàn bộ danh sách POI (quét QR cold-start) | Công khai |
+| `GET /api/v1/media/audio/:fileId` | Stream audio, `206 Partial Content` | Công khai |
+| `POST /api/v1/admin/pois` | Thêm POI kèm tọa độ và bán kính Geofence | JWT |
+| `PUT /api/v1/admin/pois/:id` | Sửa thông tin, tọa độ, nội dung song ngữ | JWT |
+| `DELETE /api/v1/admin/pois/:id` | Xóa mềm POI trong một Transaction | JWT |
+| `POST /api/v1/admin/pois/:id/media` | Tải lên MP3 hoặc ảnh minh họa | JWT |
+| `GET /api/v1/admin/pois/:id/qrcode` | Xuất mã QR (SVG / PNG) | JWT |
+
+> Ngoài ra có **Telemetry API** (`analytics.controller`) nhận log lượt nghe vào `listening_analytics`; đường dẫn cụ thể chưa được định nghĩa trong báo cáo. Cột *Quyền* của các endpoint mới do tài liệu này suy ra từ vai trò Actor. Mục tiêu độ trễ phản hồi API: **< 200 ms**.
+
+---
+
+## Chapter 11 — Admin Dashboard (CMS)
+
+Platform có hai cổng: **End-User Web App** và **Admin CMS** do Ban Quản trị chùa vận hành, cùng chạy trên Backend 3 lớp. *(Trợ lý AI / Chatbot RAG nằm ngoài phạm vi MVP.)*
+
+| Use Case | Chức năng | Điểm chính |
+|---|---|---|
+| **UC07 / UC-BE-03** Xác thực | Đăng nhập CMS, làm mới, đăng xuất | Access 15 phút, Refresh 7 ngày (HttpOnly), khóa 15 phút sau 5 lần sai |
+| **UC08** Campus | Quản lý quần thể | Tên, địa chỉ, tọa độ tâm, Bounding Box, trạng thái *Hoạt động / Sắp ra mắt* (hiện banner phía người dùng) |
+| **UC09** POI | Thêm, sửa, xóa POI | Chấm tọa độ trên bản đồ vệ tinh, bán kính 5–100 m, phân loại `INDOOR/OUTDOOR`, **xóa mềm** |
+| **UC10** Nội dung | Bài viết song ngữ và media | Form 2 tab (Tiếng Việt / English), ảnh ≤ 5 MB, MP3 ≤ 20 MB (kiểm tra bitrate), nghe thử audio trước khi lưu |
+| **UC11** QR | Xuất mã QR | PNG 1000×1000 hoặc SVG, xuất lẻ hoặc ZIP, ECC Q/H |
+
+### Admin Management Flow
+
+```
+Đăng nhập CMS → Quản lý POI → Chấm tọa độ trên bản đồ → Nhập bán kính (5–100m) + location_type → Nhập nội dung song ngữ → Tải ảnh + MP3 → Lưu → Backend 3 lớp xử lý → Cập nhật data_version → Tự sinh QR PNG/SVG
+```
+
+**Xử lý phía Backend 3 lớp:** Controller nhận Multipart Form-Data → BLL kiểm tra dung lượng (ảnh < 5 MB, audio < 20 MB), bitrate MP3 và chuẩn hóa tên file → DAL lưu file vào Storage (hoặc Cloudinary / S3) và ghi bản ghi vào CSDL → trả phản hồi thành công và tự động sinh mã QR cho POI.
+
+---
+
+## Summary — Design Patterns & Key Constants
+
+### Architecture Patterns
+
+| Pattern | Mô tả | Tham chiếu |
+|---|---|---|
+| **3-Tier Architecture** | Controller → Service → Repository, phân tách trách nhiệm (SoC) | PRD §5.3, §10.1 |
+| **Single-Direction Dependency** | Mỗi tầng chỉ gọi tầng ngay dưới; cấm Controller chạm DB | PRD §7.4 |
+| **DTO Validation & Sanitization** | Validate chặt kiểu dữ liệu, khoảng tọa độ, bán kính, độ dài bài viết | PRD §7.4 |
+| **Repository Pattern** | Đóng gói truy vấn qua ORM / SQL, giao diện sạch cho Service | PRD §5.3 |
+| **Soft Delete + Background Worker** | Đánh dấu `is_deleted` trong một transaction, dọn file vật lý sau 30 ngày | Báo cáo B3.2 |
+| **ETag / Data Versioning** | `If-None-Match` → `304`, endpoint `/version` để cache invalidation | Báo cáo B2, UC-BE-02 |
+| **Cache-First + Deep Link** | Quét QR ưu tiên LocalStorage, thiếu thì gọi `GET /pois/:id` | Báo cáo B3.1 |
+| **HTTP Range Streaming** | `206 Partial Content` cho audio, tua mượt trên Safari iOS | Báo cáo UC-BE-01 |
+| **Token Rotation** | Access 15 phút + Refresh 7 ngày (hash trong DB, HttpOnly Cookie) | Báo cáo UC-BE-03 |
+| **Account Lockout / Rate Limit** | `failed_login_attempts`, `locked_until`, rate-limit middleware | Báo cáo B5 |
+| **Client-side Geofencing** | Tải POI một lần, Haversine chạy trên trình duyệt | PRD §7.1 |
+| **Hysteresis / Visited Buffer** | Chống phát lặp tại biên bán kính, reset khi `d > R + 15 m` | PRD §7.2 |
+| **Autoplay Unlock** | `AudioContext` + buffer im lặng 0.1s sau thao tác chạm đầu tiên | PRD §7.3 |
+| **Single-Audio Rule** | Chỉ một audio phát tại một thời điểm, QR có ưu tiên cao nhất | UC04, UC05 |
+| **CI/CD as Code** | GitHub Actions YAML, merge chỉ khi 100% test pass | PRD §10.4 |
+| **Containerization** | Docker multi-stage, deploy bằng Docker Compose | PRD §5.3, §6.6 |
+
+### Key Constants
+
+| Hằng số | Giá trị | Tham chiếu |
+|---|---|---|
+| Bán kính Geofence `R` | **5 – 100 m** (theo từng POI) | BR09-1 (v2.1) |
+| Vùng đệm reset (Hysteresis) | 15 m (`d > R + 15`) | PRD §7.2 |
+| Chu kỳ cập nhật GPS | 1 – 3 giây | PRD §5.1 |
+| Ngưỡng cảnh báo GPS kém | sai số > 50 m | UC02 A1 |
+| Bán kính Trái Đất (Haversine) | ≈ 6.371.000 m | PRD §7.1 |
+| Thời gian tính Haversine | < 0.5 ms cho 15–20 POI | PRD §7.1 |
+| Buffer âm thanh im lặng | 0.1 giây | PRD §7.3 |
+| Độ chính xác tọa độ lưu | ≥ 6 chữ số thập phân (< 0.1 m) | BR09-2 |
+| Ảnh minh họa | JPG / PNG / WebP, ≤ 5 MB | UC10 |
+| Audio thuyết minh | MP3 128–320 kbps, ≤ 20 MB (đọc bằng `music-metadata`) | UC10, BR10-2 (v2.1) |
+| Mã QR xuất | PNG 1000×1000 px / SVG, ECC Q hoặc H | UC11, BR11-2 |
+| bcrypt salt rounds | ≥ 10 | BR07-1 |
+| Access Token | **15 phút** | BR07-2 (v2.1) |
+| Refresh Token | **tối đa 7 ngày**, HttpOnly Cookie | BR07-2 (v2.1) |
+| Khóa đăng nhập | sai > 5 lần → khóa 15 phút | UC07 E2 |
+| Payload kiểm tra version | < 100 byte | UC-BE-02 |
+| Chu kỳ dọn file xóa mềm | 30 ngày | Báo cáo B3.2 |
+| Độ trễ API mục tiêu | < 200 ms | PRD §4.1 |
+| Code coverage (Service Layer) | ≥ 80% | PRD §10.4 |
+| POI tối thiểu trong MVP | 8 – 10 | PRD §4.2 |
+
+---
+
+## Chapter 12 — End-to-End Flow — Từ Mở App đến Nghe Audio
+
+```mermaid
+sequenceDiagram
+    participant U as Du khách
+    participant FE as Web App (Mobile Web)
+    participant GE as Geofence (Client-side)
+    participant BE as Backend 3 lớp
+    participant DB as PostgreSQL
+
+    U->>FE: Quét QR tổng ở Cổng Tam Quan, mở Web App
+    FE->>U: Welcome Screen
+    U->>FE: Bấm "Bắt đầu chuyến chiêm bái"
+    FE->>FE: Mở khóa AudioContext (buffer im lặng 0.1s)
+    FE->>U: Xin quyền GPS
+    U->>FE: Cho phép
+    FE->>BE: GET /campuses/viet-nam-quoc-tu/version
+    BE-->>FE: version, last_updated
+
+    alt Version khác LocalStorage hoặc chưa có cache
+        FE->>BE: GET /campuses/viet-nam-quoc-tu/pois (If-None-Match)
+        BE->>DB: Controller → Service → Repository
+        DB-->>BE: POI + media (is_deleted = false)
+        BE-->>FE: 200 OK + JSON + ETag mới
+        FE->>FE: Lưu LocalStorage
+    else Version trùng
+        FE->>FE: Dùng cache LocalStorage
+    end
+
+    FE->>FE: Render bản đồ
+    FE->>GE: watchPosition (1-3 giây)
+
+    loop Mỗi lần có tọa độ mới
+        GE->>GE: Haversine d tới từng POI
+        GE->>GE: d ≤ R và chưa có trong Visited_POIs?
+    end
+
+    alt Ngoài trời: vào vùng Geofence
+        GE->>FE: Kích hoạt POI gần nhất
+        FE->>U: Rung, popup, tự phát audio
+        FE->>BE: GET /media/audio/:fileId (Range)
+        BE-->>FE: 206 Partial Content
+        FE->>FE: Thêm Visited_POIs, icon "Đang xem"
+    else Trong nhà: quét QR
+        U->>FE: Bấm "Quét mã QR"
+        FE->>FE: Đọc POI_ID, tìm trong LocalStorage
+
+        opt LocalStorage rỗng (cold-start)
+            FE->>BE: GET /pois/:id
+            BE-->>FE: POI đó + toàn bộ danh sách POI
+            FE->>FE: Nạp bổ sung LocalStorage
+        end
+
+        FE->>U: Bỏ qua GPS, ngắt audio khác, phát audio ngay
+        FE->>FE: Thêm Visited_POIs (tránh GPS phát lặp)
+    end
+
+    U->>FE: Đổi ngôn ngữ VI ↔ EN (tùy chọn)
+    FE->>U: Dừng audio cũ, nạp audio ngôn ngữ mới
+    FE->>FE: Audio kết thúc → icon "Đã xem"
+    FE->>BE: Telemetry: POI, ngôn ngữ, nguồn kích hoạt, thời lượng nghe
+    BE->>DB: Ghi listening_analytics
+```
+
+---
+
+## Appendix — Technology Stack & Cost Analysis
+
+### Backend
+
+- **Kiến trúc 3 lớp:** Controller / Service / Repository (thư mục `presentation` / `business-logic` / `data-access`)
+- **Runtime:** Node.js 18 + TypeScript (theo cấu trúc thư mục và pipeline CI của báo cáo)
+- **CSDL quan hệ:** PostgreSQL 15
+- **Truy cập dữ liệu:** ORM Prisma hoặc TypeORM
+- **Cache ETag / version:** Redis hoặc Memory Cache
+- **Bảo mật:** bcrypt, JWT (Access + Refresh, Token Rotation), rate-limit middleware
+- **Media:** `music-metadata` (đọc bitrate MP3), nén ảnh, lưu Local / Cloudinary / S3
+- **Chất lượng:** ESLint / Prettier, Jest, Supertest, PostgreSQL Service Container
+- **Đóng gói và triển khai:** Docker (multi-stage), Docker Compose, GitHub Actions
+
+> Báo cáo v2.1 cũng nêu phương án `taglib-sharp` cho .NET; phiên bản này ghi theo hướng Node.js vì toàn bộ cấu hình mẫu (Jest, Supertest, `npm ci`, `.ts`) đều là Node.js.
+
+### Frontend
+
+- **Mobile Web App** responsive, truy cập qua QR / link, không cần cài app
+- **HTML5 Geolocation API** (`watchPosition`) cho định vị và Geofence client-side
+- **Web Audio API** (`AudioContext`) để mở khóa Autoplay
+- **LocalStorage** lưu danh sách POI, version dữ liệu và ngôn ngữ đã chọn
+- **Thư viện quét QR bằng camera** trên trình duyệt và **thư viện bản đồ** (tài liệu nguồn chưa chỉ định cụ thể)
+
+### Hạ tầng & dịch vụ ngoài
+
+- 📦 Lưu media: Local Storage, hoặc Cloudinary / S3
+- 🐳 Registry: Docker Hub
+- ☁️ Deploy: VPS, kích hoạt bằng SSH (`appleboy/ssh-action`)
+- 🔑 Bí mật (registry, SSH, JWT): quản lý bằng **GitHub Secrets**
+- ⚠️ Tài liệu nguồn **không có phân tích chi phí** chi tiết; chi phí máy chủ, CSDL và lưu trữ phát sinh khi deploy
+
+### Phản biện v2.0 → khắc phục v2.1
+
+| # | Phản biện về PRD v2.0 | Khắc phục trong v2.1 |
+|---|---|---|
+| 1 | Backend bị coi là Actor (sai chuẩn UML) | Actor gồm Khách tham quan, Quản trị viên, **CI/CD Runner** (Chapter 00) |
+| 2 | UC01–UC06 thiên về giao diện Client, ít thể hiện Backend | Viết lại theo luồng 3 lớp; thêm **UC-BE-01 đến UC-BE-04** |
+| 3a | Quét QR: UC05 lấy từ LocalStorage nhưng có API `GET /pois/:id`; lỗi khi LocalStorage rỗng | **Cache-First + Deep Link**: thiếu cache thì gọi API, nhận POI kèm toàn bộ danh sách |
+| 3b | Transaction không rollback được file trên Cloud khi xóa POI | **Soft Delete** + Background Worker dọn sau 30 ngày |
+| 4 | Thiếu: Range Streaming, Cache Invalidation, Token Refresh/Revoke, Analytics | Thêm `/media/audio` (206), `/version` + ETag, `/auth/refresh` + `/auth/logout`, bảng `listening_analytics` |
+| 5 | Khóa đăng nhập không có cột lưu; bitrate không có công cụ; bán kính 10–30 m quá cứng | Thêm `failed_login_attempts`, `locked_until`; dùng `music-metadata`; bán kính **5–100 m** |
+
+### Phạm vi MVP & định hướng tương lai
+
+**Ngoài phạm vi MVP:** Chatbot AI / RAG, dẫn đường Turn-by-turn 3D phức tạp.
+
+**Định hướng mở rộng:** (1) Trợ lý ảo AI Phật giáo; (2) Bản đồ 3D và định vị trong nhà qua BLE iBeacon; (3) Gợi ý tuyến chiêm bái theo chủ đề; (4) Thêm tiếng Trung, Nhật, Hàn, Pháp; (5) Dashboard Heatmap mật độ du khách theo thời gian thực.
+
+### Lộ trình đồ án
+
+| Giai đoạn | Nội dung |
+|---|---|
+| **Tuần 1–3** | Khảo sát thực địa, lấy tọa độ GPS các POI, thiết kế PRD, kiến trúc 3 lớp và CSDL |
+| **Tuần 4–6** | Xây dựng Backend (DAL → BLL → API), thiết lập pipeline GitHub Actions |
+| **Tuần 7** | **Midterm Review:** demo API, Database hoàn chỉnh, pipeline CI/CD xanh |
+| **Tuần 8–10** | Tích hợp Frontend, kiểm thử Geofencing và quét QR tại khuôn viên chùa |
+| **Tuần 11–12** | **Final Defense:** nghiệm thu, đóng gói Docker, nộp báo cáo |
+
+---
+
+**Hệ Thống Thuyết Minh Tự Động Đa Ngôn Ngữ Cho Việt Nam Quốc Tự**
+Mobile Web App + Backend 3 lớp + CI/CD · Đồ án chuyên ngành CNTT, Đề tài 2: BE Dev 3 Lớp & CI/CD
+*Tổng hợp từ PRD v2.0 và Báo cáo phản biện v2.1. Các mục ghi "đề xuất", "suy ra" hoặc "chưa chỉ định" là phần cần xác nhận thêm với nhóm.*
