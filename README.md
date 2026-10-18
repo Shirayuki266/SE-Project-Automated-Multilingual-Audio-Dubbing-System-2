@@ -5,7 +5,7 @@
 
 **Mobile Web App (Zero-Install)** giúp du khách và Phật tử tham quan **Việt Nam Quốc Tự** (244 Ba Tháng Hai, Phường 12, Quận 10, TP.HCM): bản đồ số tương tác, thuyết minh song ngữ Việt - Anh tự động theo vị trí (Geofencing GPS), quét QR dự phòng ở khu vực trong nhà nơi GPS yếu, kèm CMS cho Ban Quản trị chùa.
 
-`Backend 3 lớp (3-Tier)` · `Node.js + TypeScript` · `PostgreSQL + ORM` · `Mobile Web (Zero-Install)` · `Geofencing GPS + QR Indoor Fallback` · `Audio Range Streaming (HTTP 206)` · `ETag / Data Versioning` · `JWT Rotation + bcrypt` · `GitHub Actions CI/CD + Docker`
+`Backend 3 lớp (3-Tier)` · `Python + FastAPI` · `PostgreSQL + SQLAlchemy` · `Mobile Web (Zero-Install)` · `Geofencing GPS + QR Indoor Fallback` · `Audio Range Streaming (HTTP 206)` · `ETag / Data Versioning` · `JWT Rotation + bcrypt` · `GitHub Actions CI/CD + Docker`
 
 **Bài toán cần giải:** khuôn viên rộng gần 4 ha nên khách mới dễ lạc; thiếu thông tin lịch sử, ý nghĩa văn hóa; nhà chùa không thể bố trí thuyết minh viên túc trực liên tục; rào cản ngôn ngữ với khách quốc tế (bảng biển chủ yếu chữ Hán và tiếng Việt); GPS yếu hoặc mất tín hiệu trong Chánh Điện và Phòng trưng bày.
 
@@ -23,7 +23,7 @@
 | 07 | [Authentication & RBAC](#chapter-07--authentication--rbac) | Access/Refresh Token, khóa tài khoản |
 | 08 | [Localization — Đa Ngôn Ngữ 2 Làn](#chapter-08--localization--đa-ngôn-ngữ-2-làn) | Nội dung và giao diện, đổi ngôn ngữ |
 | 09 | [Offline-First — 4 Lớp Dự Phòng](#chapter-09--offline-first--4-lớp-dự-phòng) | Tải một lần, cache invalidation |
-| 10 | [Bản Đồ Số & API Service](#chapter-10--bản-đồ-số--api-service) | Trạng thái POI, danh sách 12 endpoint |
+| 10 | [Bản Đồ Số & API Service](#chapter-10--bản-đồ-số--api-service) | Trạng thái POI, API backend |
 | 11 | [Admin Dashboard (CMS)](#chapter-11--admin-dashboard-cms) | UC07–UC11, luồng quản trị |
 | — | [Design Patterns & Key Constants](#summary--design-patterns--key-constants) | Pattern và hằng số quan trọng |
 | 12 | [End-to-End Flow](#chapter-12--end-to-end-flow--từ-mở-app-đến-nghe-audio) | Từ quét QR cổng chùa đến nghe audio |
@@ -36,11 +36,11 @@
 | Tác nhân (Actor) ngoài hệ thống | **3** (Khách tham quan, Quản trị viên, CI/CD Runner) |
 | Lớp Backend | **3** (Controller → Service → Repository) |
 | Use Case | **15** (UC01–UC11 + UC-BE-01 đến UC-BE-04) |
-| RESTful API endpoints | **12** (+ Telemetry API, đường dẫn chưa định nghĩa) |
+| RESTful API endpoints | **17** (+ Telemetry API) |
 | Bảng CSDL | **5** (`campuses`, `pois`, `poi_media`, `admin_users`, `listening_analytics`) |
 | Bán kính Geofence | **5 – 100 m** |
 | Ngôn ngữ hỗ trợ | **2** (VI, EN), sẵn sàng mở rộng |
-| Code coverage tối thiểu (Service Layer) | **≥ 80%** |
+| Mục tiêu coverage (Service Layer) | **≥ 80%** (chưa được đặt làm CI gate) |
 
 ---
 
@@ -69,18 +69,18 @@ flowchart TB
     end
 
     DB[("PostgreSQL")]
-    STORE[("Storage: Local / Cloudinary / S3")]
-    CACHE[("Redis / Memory Cache<br/>ETag, version")]
+    STORE[("Media Storage: Local")]
+    VERSION["Campus data_version / ETag"]
     CICD["GitHub Actions Runner<br/>(Actor hệ thống)"]
 
     WEB -->|"REST JSON, HTTP 206"| CTRL
     CMS -->|"REST + JWT"| CTRL
     CTRL --> SVC
     SVC --> REPO
-    SVC --> CACHE
+    SVC --> VERSION
     REPO --> DB
-    REPO --> STORE
-    CICD -.->|"test, build, deploy"| T1
+    SVC --> STORE
+    CICD -.->|"test, build"| T1
 ```
 
 ### Tác nhân (Actors) — theo chuẩn UML
@@ -103,31 +103,57 @@ Actor phải là thực thể **nằm ngoài** biên giới hệ thống. Vì v�
 
 ### Cấu trúc thư mục 3 lớp
 
+Mã nguồn hiện tại dùng Python/FastAPI nên giữ tên package theo quy ước Python; các module được phân vào ba tầng tương ứng:
+
 ```text
-vietnamquoctu-backend/
-├── .github/workflows/
-│   └── backend-ci-cd.yml            # Pipeline CI/CD hoàn chỉnh
-├── src/
-│   ├── presentation/                # TẦNG 1: Controllers
-│   │   ├── controllers/             # auth, campus, poi, media, analytics
-│   │   ├── middlewares/             # jwt-auth, rate-limit, error (Global Exception Handler)
-│   │   └── dtos/                    # DTOs và Validation Schemas
-│   ├── business-logic/              # TẦNG 2: Services
-│   │   ├── services/                # auth, campus, poi, qr-code, audio-stream, media-storage
-│   │   └── helpers/geofence.helper.ts   # Haversine và tính toán không gian
-│   ├── data-access/                 # TẦNG 3: Repositories
-│   │   ├── repositories/            # user, campus, poi, media, analytics
-│   │   ├── entities/                # ORM Models (Prisma / TypeORM)
-│   │   └── database.connection.ts   # Connection Pool
-│   ├── tests/
-│   │   ├── unit/                    # Unit Test tầng Service (Jest)
-│   │   └── integration/             # Integration Test API (Supertest)
-│   ├── app.ts
-│   └── server.ts
-├── Dockerfile                       # Multi-stage
-├── docker-compose.yml               # Cấu hình Production Server
-└── package.json
+.
+├── .github/workflows/python-app.yml
+├── app/
+│   ├── main.py                      # Composition root
+│   ├── presentation/                # TẦNG 1: HTTP/API
+│   │   ├── controllers/
+│   │   │   ├── analytics_controller.py
+│   │   │   ├── auth_controller.py
+│   │   │   ├── campus_controller.py
+│   │   │   ├── content_controller.py
+│   │   │   └── media_controller.py
+│   │   ├── dtos/
+│   │   │   ├── analytics.py
+│   │   │   ├── auth.py
+│   │   │   ├── campus.py
+│   │   │   └── content.py
+│   │   ├── middlewares/
+│   │   │   ├── auth.py
+│   │   │   └── rate_limit.py
+│   │   ├── static/
+│   │   └── ui_i18n/
+│   ├── business_logic/              # TẦNG 2: Nghiệp vụ
+│   │   ├── services/
+│   │   │   ├── analytics_service.py
+│   │   │   ├── audio_stream_service.py
+│   │   │   ├── auth_service.py
+│   │   │   ├── content_service.py
+│   │   │   └── media_service.py
+│   │   └── helpers/geofence.py
+│   └── data_access/                 # TẦNG 3: Truy cập dữ liệu
+│       ├── repositories/
+│       │   ├── analytics_repository.py
+│       │   ├── auth_repository.py
+│       │   └── content_repository.py
+│       ├── database.py
+│       └── entities/models.py
+├── tests/
+│   ├── conftest.py
+│   ├── unit/
+│   │   └── test_backend_services.py
+│   └── integration/api/
+│       └── test_backend_api.py
+├── Dockerfile
+├── docker-compose.yml
+└── requirements.txt
 ```
+
+**Chạy backend:** tạo `.env` từ `.env.example`, thay `JWT_SECRET` và `REFRESH_TOKEN_SECRET` bằng chuỗi ngẫu nhiên riêng. Để tạo quản trị viên đầu tiên, cấu hình đầy đủ ba biến `BOOTSTRAP_ADMIN_*`. Chạy `docker compose up --build` để bật PostgreSQL và API; OpenAPI có tại `http://localhost:8000/docs`. Có thể chạy trực tiếp bằng `python -m pip install -r requirements.txt` và `uvicorn app.main:app --reload`. Nếu không cấu hình biến bootstrap, ứng dụng không tạo tài khoản mặc định.
 
 ### Bản đồ Use Case
 
@@ -197,31 +223,31 @@ CREATE TABLE listening_analytics (
 
 ### Backend Startup & Deployment Sequence (CI/CD)
 
-Toàn bộ quy trình được khai báo bằng YAML: `.github/workflows/backend-ci-cd.yml` (UC-BE-04, Actor: GitHub Actions Runner). Mọi commit phải vượt **100% test tự động** trước khi merge vào nhánh production.
+Quy trình CI hiện tại được khai báo tại `.github/workflows/python-app.yml` (UC-BE-04, Actor: GitHub Actions Runner). Workflow dựng PostgreSQL, chạy test và build Docker image; deploy production chưa được cấu hình.
 
 ```mermaid
 flowchart LR
-    A["Push / Pull Request"] --> B["CI 1: Linter + Format"]
-    B --> C["CI 2: Unit Test<br/>coverage >= 80%"]
-    C --> D["CI 3: Integration Test<br/>Supertest + PostgreSQL service"]
-    D -->|"fail: chặn merge"| X["Báo lỗi"]
-    D -->|"merge vào main"| E["CI 4: Build Docker Image<br/>multi-stage"]
-    E --> F["CD 1: Push Docker Hub<br/>GitHub Secrets"]
-    F --> G["CD 2: SSH Deploy VPS<br/>Docker Compose"]
-    G --> H["Container mới chạy"]
+    A["Push / Pull Request"] --> B["CI 1: pytest<br/>SQLite / PostgreSQL"]
+    B -->|"fail: chặn merge"| X["Báo lỗi"]
+    B --> C["CI 2: Build Docker Image"]
+    C --> D["CI xanh"]
 ```
 
 | Giai đoạn | Công cụ / Bước thực thi | Mục tiêu và tiêu chí nghiệm thu |
 |---|---|---|
 | **Cục bộ** | Nhánh tính năng, Unit Test tầng Service, Integration Test cho API | Dev tự kiểm thử trước khi push |
-| **CI Step 1** | Static Code Analysis (ESLint / Prettier) | Kiểm tra coding style, lỗi cú pháp, biến không dùng |
-| **CI Step 2** | Unit Testing (Jest) | Test độc lập logic BLL: Haversine, validate bán kính Geofence, chữ ký JWT. **Coverage ≥ 80%** |
-| **CI Step 3** | Integration Testing (Supertest) | Test luồng gọi API tới Controllers với **PostgreSQL thật** chạy bằng Service Container |
-| **CI Step 4** | Build & Docker Containerization | Image tối ưu (multi-stage) |
-| **CD Step 1** | Push to Docker Hub / Registry | Đẩy image đã kiểm định, thông tin đăng nhập lấy từ GitHub Secrets |
-| **CD Step 2** | Automated Deploy to Server | SSH vào VPS, pull image mới, khởi động lại container bằng Docker Compose |
+| **CI Step 1** | Unit và Integration Testing (pytest) | Kiểm thử service và API với PostgreSQL Service Container |
+| **CI Step 2** | Build Docker Image | Kiểm tra image backend có thể build |
+| **CD** | Chưa cấu hình | Registry và deploy VPS cần bổ sung secrets/hạ tầng trước khi bật |
 
-**Workflow mẫu** (`.github/workflows/backend-ci-cd.yml`):
+**Workflow TypeScript bên dưới là mẫu tham khảo trong tài liệu PRD, không phải workflow đang chạy.** Cấu hình thực tế là `.github/workflows/python-app.yml`; các bước chính gồm:
+
+```text
+Checkout → Python 3.12 → pip install -r requirements.txt → pytest
+→ docker build
+```
+
+Mẫu deploy Node.js cũ (`.github/workflows/backend-ci-cd.yml`) được giữ lại như tư liệu thiết kế ban đầu:
 
 ```yaml
 name: Backend 3-Tier CI/CD Pipeline
@@ -390,7 +416,7 @@ Với 15–20 POI, thời gian tính toán dưới **0.5 ms**.
 ### Ví dụ luồng 3 lớp: lấy dữ liệu POI khuôn viên
 
 1. **Presentation:** client gọi `GET /api/v1/campuses/viet-nam-quoc-tu/pois` kèm `If-None-Match`. `CampusController` gọi `CampusService.getCampusPOIs(campusSlug, clientETag)`.
-2. **Business Logic:** `CampusService` kiểm tra ETag trong Redis / Memory Cache. Chưa đổi → trả `304 Not Modified`, kết thúc sớm. Đã đổi → gọi `POIRepository.findActiveByCampusId(campusId)`.
+2. **Business Logic:** `CampusService` so sánh ETag với `campuses.data_version` trong PostgreSQL. Chưa đổi → trả `304 Not Modified`, kết thúc sớm. Đã đổi → gọi `POIRepository.findActiveByCampusId(campusId)`.
 3. **Data Access:** `POIRepository` truy vấn (ORM Prisma / TypeORM), tương đương:
 
 ```sql
@@ -546,17 +572,21 @@ Mục tiêu: giảm chi phí tính toán cho server và giữ trải nghiệm m�
 | `POST /api/v1/auth/login` | Đăng nhập quản trị, cấp Access + Refresh Token | Công khai |
 | `POST /api/v1/auth/refresh` | Làm mới token (Token Rotation) | Refresh Token (Cookie) |
 | `POST /api/v1/auth/logout` | Thu hồi Refresh Token | Đã đăng nhập |
+| `GET /api/v1/auth/me` | Lấy thông tin quản trị viên hiện tại | JWT |
+| `GET /api/v1/campuses/:slug` | Đọc thông tin, trạng thái và ranh giới campus | Công khai |
 | `GET /api/v1/campuses/viet-nam-quoc-tu/version` | Kiểm tra phiên bản dữ liệu (payload < 100 byte) | Công khai |
 | `GET /api/v1/campuses/viet-nam-quoc-tu/pois` | Tải toàn bộ POI + media (ETag / 304) | Công khai |
+| `GET/PUT /api/v1/admin/campuses/:slug` | Xem và cập nhật campus, ranh giới và trạng thái | JWT |
 | `GET /api/v1/pois/:id` | Chi tiết POI kèm toàn bộ danh sách POI (quét QR cold-start) | Công khai |
 | `GET /api/v1/media/audio/:fileId` | Stream audio, `206 Partial Content` | Công khai |
+| `GET /api/v1/media/files/:mediaId` | Lấy ảnh media của POI | Công khai |
 | `POST /api/v1/admin/pois` | Thêm POI kèm tọa độ và bán kính Geofence | JWT |
 | `PUT /api/v1/admin/pois/:id` | Sửa thông tin, tọa độ, nội dung song ngữ | JWT |
 | `DELETE /api/v1/admin/pois/:id` | Xóa mềm POI trong một Transaction | JWT |
 | `POST /api/v1/admin/pois/:id/media` | Tải lên MP3 hoặc ảnh minh họa | JWT |
 | `GET /api/v1/admin/pois/:id/qrcode` | Xuất mã QR (SVG / PNG) | JWT |
 
-> Ngoài ra có **Telemetry API** (`analytics.controller`) nhận log lượt nghe vào `listening_analytics`; đường dẫn cụ thể chưa được định nghĩa trong báo cáo. Cột *Quyền* của các endpoint mới do tài liệu này suy ra từ vai trò Actor. Mục tiêu độ trễ phản hồi API: **< 200 ms**.
+> **Telemetry API:** `POST /api/v1/analytics/listening` nhận log lượt nghe vào `listening_analytics`. API admin hiện cho phép `SUPER_ADMIN` và `EDITOR` thao tác như nhau; ma trận quyền chi tiết chưa được đặc tả. Mục tiêu độ trễ phản hồi API: **< 200 ms**.
 
 ---
 
@@ -702,17 +732,17 @@ sequenceDiagram
 
 ### Backend
 
-- **Kiến trúc 3 lớp:** Controller / Service / Repository (thư mục `presentation` / `business-logic` / `data-access`)
-- **Runtime:** Node.js 18 + TypeScript (theo cấu trúc thư mục và pipeline CI của báo cáo)
+- **Kiến trúc 3 lớp:** Controller / Service / Repository (thư mục `presentation` / `business_logic` / `data_access`)
+- **Runtime:** Python 3.12 + FastAPI
 - **CSDL quan hệ:** PostgreSQL 15
-- **Truy cập dữ liệu:** ORM Prisma hoặc TypeORM
-- **Cache ETag / version:** Redis hoặc Memory Cache
+- **Truy cập dữ liệu:** SQLAlchemy ORM + psycopg
+- **Cache ETag / version:** ETag dựa trên `data_version` của Campus
 - **Bảo mật:** bcrypt, JWT (Access + Refresh, Token Rotation), rate-limit middleware
-- **Media:** `music-metadata` (đọc bitrate MP3), nén ảnh, lưu Local / Cloudinary / S3
-- **Chất lượng:** ESLint / Prettier, Jest, Supertest, PostgreSQL Service Container
-- **Đóng gói và triển khai:** Docker (multi-stage), Docker Compose, GitHub Actions
+- **Media:** Mutagen (đọc bitrate MP3), Pillow (kiểm tra ảnh), QRCode; local storage
+- **Chất lượng:** pytest, SQLite cho phát triển và PostgreSQL Service Container trên CI
+- **Đóng gói và triển khai:** Docker, Docker Compose, GitHub Actions
 
-> Báo cáo v2.1 cũng nêu phương án `taglib-sharp` cho .NET; phiên bản này ghi theo hướng Node.js vì toàn bộ cấu hình mẫu (Jest, Supertest, `npm ci`, `.ts`) đều là Node.js.
+> Ứng dụng hiện khởi tạo schema ORM khi khởi động để thuận tiện cho MVP. Rate limit hiện lưu bộ đếm trong bộ nhớ từng process. Trước khi production cần thay bằng migration có phiên bản, bộ đếm phân tán (ví dụ Redis), và cấu hình domain/TLS, secrets, backup phù hợp.
 
 ### Frontend
 
