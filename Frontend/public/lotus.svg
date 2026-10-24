@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <defs>
+    <linearGradient id="lotusGold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffd700" />
+      <stop offset="100%" stop-color="#b8860b" />
+    </linearGradient>
+  </defs>
+  <circle cx="50" cy="50" r="48" fill="#5c2b16" stroke="#ffd700" stroke-width="2"/>
+  <!-- Central Petal -->
+  <path d="M50 20 C42 38 42 65 50 78 C58 65 58 38 50 20 Z" fill="url(#lotusGold)" />
+  <!-- Left Petals -->
+  <path d="M50 78 C40 68 25 50 30 35 C38 48 44 64 50 78 Z" fill="url(#lotusGold)" opacity="0.9"/>
+  <path d="M50 78 C35 72 15 62 18 48 C28 58 40 69 50 78 Z" fill="url(#lotusGold)" opacity="0.75"/>
+  <!-- Right Petals -->
+  <path d="M50 78 C60 68 75 50 70 35 C62 48 56 64 50 78 Z" fill="url(#lotusGold)" opacity="0.9"/>
+  <path d="M50 78 C65 72 85 62 82 48 C72 58 60 69 50 78 Z" fill="url(#lotusGold)" opacity="0.75"/>
+  <!-- Base Lotus Lotus Seed -->
+  <circle cx="50" cy="62" r="6" fill="#fffcf5"/>
+</svg>

@@ -1,0 +1,15 @@
+[
+  {
+    "campus_id": "viet-nam-quoc-tu",
+    "name": "Việt Nam Quốc Tự",
+    "address": "244 đường Ba Tháng Hai, Phường 12, Quận 10, TP. Hồ Chí Minh",
+    "center_latitude": 10.77185,
+    "center_longitude": 106.67135,
+    "default_zoom": 18.0,
+    "description_vi": "Việt Nam Quốc Tự là trung tâm Phật giáo quy mô và có ý nghĩa lịch sử - tâm linh quan trọng bậc nhất của Thành phố Hồ Chí Minh và cả nước, trụ sở Ban Trị sự Giáo hội Phật giáo Việt Nam TP.HCM. Khuôn viên rộng gần 4 héc-ta gồm Bảo Tháp 13 tầng, Đại Chánh Điện, Tháp Chuông, Nhà Tổ và các công viên cảnh quan thanh tịnh.",
+    "description_en": "Vietnam Quoc Tu is one of the most prominent Buddhist spiritual, cultural and historical centers in Ho Chi Minh City and Vietnam, serving as the headquarters of the Executive Committee of the Vietnam Buddhist Sangha in HCMC. The nearly 4-hectare campus features the 13-storey Stupa, the Great Main Sanctuary, the Bell Tower, and serene landscaped gardens.",
+    "map_image_url": "/static/images/vietnam_quoc_tu_overview.jpg",
+    "created_at": "2026-10-19T06:19:22.274182+00:00",
+    "updated_at": "2026-10-19T06:19:22.274191+00:00"
+  }
+]

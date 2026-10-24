@@ -1,0 +1,119 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: 'Be Vietnam Pro', 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+  --font-serif: 'Lora', 'Merriweather', 'Segoe UI', serif;
+}
+
+html, body, input, button, textarea, select {
+  font-family: 'Be Vietnam Pro', 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.font-serif, h1, h2, h3, h4 {
+  font-family: 'Lora', 'Be Vietnam Pro', 'Segoe UI', serif;
+}
+
+@layer base {
+  :root {
+    --temple-primary: #5c2b16;
+    --temple-gold: #d4af37;
+    --temple-gold-light: #fef9e7;
+    --temple-bg: #faf6f0;
+    --temple-surface: #ffffff;
+    --temple-text: #2c1d11;
+    --temple-muted: #735947;
+    --temple-accent: #c44536;
+    --temple-jade: #2a9d8f;
+  }
+}
+
+/* Custom animations for Map Markers and Audio */
+@keyframes pulse-ring {
+  0% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(196, 69, 54, 0.7);
+  }
+  70% {
+    transform: scale(1.15);
+    box-shadow: 0 0 0 16px rgba(196, 69, 54, 0);
+  }
+  100% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(196, 69, 54, 0);
+  }
+}
+
+@keyframes user-halo {
+  0% {
+    transform: scale(0.9);
+    opacity: 0.8;
+  }
+  50% {
+    transform: scale(1.4);
+    opacity: 0.2;
+  }
+  100% {
+    transform: scale(0.9);
+    opacity: 0.8;
+  }
+}
+
+.active-poi-pulse {
+  animation: pulse-ring 2s infinite cubic-bezier(0.45, 0, 0.55, 1);
+}
+
+.user-gps-halo {
+  animation: user-halo 2.5s infinite ease-in-out;
+}
+
+@keyframes user-radar-ping {
+  0% {
+    transform: scale(0.6);
+    opacity: 0.9;
+  }
+  75%, 100% {
+    transform: scale(2.6);
+    opacity: 0;
+  }
+}
+
+.user-radar-ping {
+  animation: user-radar-ping 2.2s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+/* Equalizer Bars */
+.audio-bar {
+  display: inline-block;
+  width: 3px;
+  background-color: currentColor;
+  border-radius: 2px;
+  animation: bounce 1.2s infinite ease-in-out;
+}
+
+.audio-bar:nth-child(1) { animation-delay: 0.1s; height: 8px; }
+.audio-bar:nth-child(2) { animation-delay: 0.3s; height: 16px; }
+.audio-bar:nth-child(3) { animation-delay: 0.5s; height: 12px; }
+.audio-bar:nth-child(4) { animation-delay: 0.2s; height: 20px; }
+
+@keyframes bounce {
+  0%, 100% { transform: scaleY(0.4); }
+  50% { transform: scaleY(1); }
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #f1ebd9;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbb493;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #8b6e4e;
+}
