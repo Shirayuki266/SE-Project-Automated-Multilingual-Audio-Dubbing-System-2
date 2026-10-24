@@ -29,8 +29,10 @@ def is_inside_boundary(
 ) -> bool:
     if len(polygon) < 3:
         return False
+
     inside = False
     previous_longitude, previous_latitude = polygon[-1]
+
     for current_longitude, current_latitude in polygon:
         crosses_latitude = (current_latitude > latitude) != (
             previous_latitude > latitude
@@ -42,7 +44,8 @@ def is_inside_boundary(
                 / (previous_latitude - current_latitude)
                 + current_longitude
             )
-            if longitude < crossing_longitude:
+            if longitude > crossing_longitude:
                 inside = not inside
         previous_longitude, previous_latitude = current_longitude, current_latitude
+
     return inside

@@ -14,15 +14,15 @@ class Settings(BaseSettings):
     app_env: str = "development"
     debug: bool = False
     database_url: str = "sqlite:///./vietnamquoctu.db"
-    jwt_secret: str = "development-jwt-secret-change-before-deployment-123456"
-    refresh_token_secret: str = "development-refresh-secret-change-before-deployment-123456"
+    jwt_secret: str = "development-jwt-secret-change-before-deployment-1234567890"
+    refresh_token_secret: str = "development-refresh-secret-change-before-deployment-abcdefghi"
     access_token_minutes: int = Field(default=15, ge=1, le=60)
     refresh_token_days: int = Field(default=7, ge=1, le=30)
     media_storage_path: Path = Path("var/media")
     public_base_url: str = "http://localhost:8000"
-    bootstrap_admin_username: str | None = None
-    bootstrap_admin_email: str | None = None
-    bootstrap_admin_password: str | None = None
+    bootstrap_admin_username: str | None = "admin"
+    bootstrap_admin_email: str | None = "admin@vietnamquoctu.local"
+    bootstrap_admin_password: str | None = "Admin123!@#2024"
     refresh_cookie_secure: bool = False
 
     @model_validator(mode="after")
