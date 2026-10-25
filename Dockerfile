@@ -3,6 +3,9 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
+# Install Python 3 required for spatial microservice and unit tests
+RUN apk add --no-cache python3
+
 COPY package*.json ./
 RUN npm install --legacy-peer-deps
 
@@ -17,15 +20,16 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
 
-# Install tini for graceful zombie process reaping
-RUN apk add --no-cache curl
+# Install curl for healthcheck and python3 for spatial AI microservice
+RUN apk add --no-cache curl python3
 
 COPY package*.json ./
 RUN npm install --omit=dev --legacy-peer-deps && npm install -g tsx
 
 COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/src/server ./src/server
+COPY --from=builder /app/src ./src
 COPY --from=builder /app/server.ts ./server.ts
+COPY --from=builder /app/python ./python
 
 # Non-root secure execution
 USER node
