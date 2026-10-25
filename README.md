@@ -101,30 +101,176 @@ Giao diện Quản trị được thiết kế đồng bộ với phong cách th
 
 ## 🛠️ Công Nghệ & Kiến Trúc Hệ Thống
 
+Dự án được xây dựng theo chuẩn Full-Stack hiện đại với kiến trúc phân tầng (Clean 3-Tier Layered Architecture), tối ưu hóa cho thiết bị di động, đảm bảo tốc độ phản hồi dưới 50ms, khả năng hoạt động ngoại tuyến linh hoạt và bảo mật cao.
+
 ```
-┌────────────────────────────────────────────────────────┐
-│                   GIAO DIỆN CLIENT                     │
-│  React 19 + TypeScript + Tailwind CSS v4 + Leaflet.js  │
-│  (Trang Chiêm Bái Du Khách  |  Cổng Quản Trị Admin)    │
-└───────────────────────────┬────────────────────────────┘
-                            │ REST APIs / Audio Web Speech
-┌───────────────────────────▼────────────────────────────┐
-│                    NODE.JS EXPRESS                     │
-│   Controllers (Auth, POIs, Translations, Analytics)    │
-│   Services (POI Domain, GPS Kalman, AI Gemini Bridge)  │
-└─────────────┬──────────────────────────────┬───────────┘
+┌────────────────────────────────────────────────────────────────────────┐
+│                      GIAO DIỆN NGƯỜI DÙNG (FRONTEND)                   │
+│    React 19 • TypeScript • Tailwind CSS v4 • Leaflet GIS • Motion     │
+│    ├── Trang Chiêm Bái Du Khách (Khám phá, Lộ trình, Bản đồ GPS)       │
+│    └── Cổng Quản Trị Hệ Thống (Quản lý POIs, Soạn thảo bài, Thống kê) │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │ HTTP / REST APIs & Web Speech Audio
+┌───────────────────────────────────▼────────────────────────────────────┐
+│                    MÁY CHỦ ỨNG DỤNG (NODE.JS EXPRESS)                  │
+│    Runtime: Node.js 22 LTS • TypeScript Engine: tsx • Express 4.21     │
+│    ├── Controllers: AuthController • POIController • AnalyticsCtrl     │
+│    ├── Services: POIService • AI Translation • GPS Kalman Filter       │
+│    └── Audio Engine: Native 16-bit PCM WAV Synthesizer                 │
+└─────────────┬──────────────────────────────┬───────────────────────────┘
               │                              │
-┌─────────────▼──────────────┐ ┌──────────────────────────┐
-│     PYTHON SPATIAL AI      │ │   CƠ SỞ DỮ LIỆU MONGODB  │
-│  Tính Haversine & Âm thanh │ │   6 Collections BSON     │
-│   Chuông Chùa Phòng Thu    │ │   2dsphere GeoJSON Point │
-└────────────────────────────┘ └──────────────────────────┘
+┌─────────────▼──────────────┐ ┌─────────────▼──────────────────────────┐
+│   TRÍ TUỆ NHÂN TẠO (AI)    │ │        CƠ SỞ DỮ LIỆU & LƯU TRỮ         │
+│ Google Gen AI SDK v2.4.0   │ │ MongoDB v7.7 Driver • 2dsphere GeoJSON │
+│ Gemini 2.5/3.8 Flash       │ │ In-Memory Fallback Engine              │
+│ Dịch ngữ cảnh Phật giáo    │ │ 6 BSON Collections • LocalStorage Sync │
+└────────────────────────────┘ └────────────────────────────────────────┘
+              │                              │
+┌─────────────▼──────────────┐ ┌─────────────▼──────────────────────────┐
+│  SPATIAL COMPUTING PYTHON  │ │           DEVOPS & TRIỂN KHAI          │
+│ Python 3.9+ Microservice   │ │ Docker & Docker Compose • CI/CD Actions│
+│ Vincenty & Haversine Math  │ │ Zero-Downtime Shell • Node Test Runner │
+└────────────────────────────┘ └────────────────────────────────────────┘
 ```
 
-- **Frontend**: React 19, TypeScript, Tailwind CSS v4 (`@tailwindcss/vite`), Leaflet Map, Lucide React, Motion.
-- **Backend**: Node.js, Express, tsx engine.
-- **Spatial Computing**: Python 3 (`python/spatial_ai_service.py`) hỗ trợ thuật toán hình học tọa độ và xử lý âm thanh chuông tần số thấp.
-- **Trí Tuệ Nhân Tạo**: Google Gemini API (`@google/genai`) hỗ trợ dịch thuật tự động đa ngôn ngữ chuyên sâu về Phật học.
+---
+
+### 1. Công Nghệ Giao Diện (Frontend & Client-Side)
+- **Framework & Ngôn ngữ**:
+  - **React 19** (`react`, `react-dom`): Phiên bản React mới nhất với hiệu năng vượt trội, tối ưu hóa quá trình hydrate và render component.
+  - **TypeScript 7.x**: Hệ thống định kiểu tĩnh nghiêm ngặt (`strict: true`), bảo đảm an toàn dữ liệu từ backend đến giao diện.
+  - **Vite 8** (`vite`, `@vitejs/plugin-react`): Trình bundler thế hệ mới với tốc độ khởi động cực nhanh và cơ chế Hot Module Replacement (HMR).
+- **Thiết kế & Giao diện (UI/UX)**:
+  - **Tailwind CSS v4** (`@tailwindcss/vite`): Phiên bản engine mới nhất với cấu hình `@import "tailwindcss";`, áp dụng triết lý thiết kế Thiền trà & Phật giáo Á Đông (*Zen Buddhist Aesthetics*), phối màu trang nhã (Xanh ngọc thiền `#2d5a37`, nền giấy lụa `#f7f9f6`, vàng đồng hoàng kim, nâu gỗ cổ tự).
+  - **Lucide React** (`lucide-react`): Bộ biểu tượng vector sắc nét, đồng bộ cho mọi thao tác bản đồ, âm thanh, la bàn và quản trị.
+  - **Framer Motion** (`motion`): Thư viện diễn hoạt mượt mà cho các hiệu ứng trượt mở Bottom Drawer, thông báo Geofence Toast và chuyển đổi tab.
+- **Bản đồ số & Không gian địa lý (GIS Interactive Map)**:
+  - **Leaflet 1.9** (`leaflet`, `@types/leaflet`): Thư viện bản đồ tương tác mã nguồn mở tối ưu cho di động.
+  - **Đa tầng bản đồ (Multi-Layer Map Tiles)**:
+    - *Bản đồ đường phố*: Tích hợp OpenStreetMap Standard Tiles hiển thị chi tiết tên đường Ba Tháng Hai, ngõ vào và cảnh quan Quận 10.
+    - *Bản đồ vệ tinh*: Tích hợp Esri World Imagery Satellite Tiles độ phân giải cao, hiển thị rõ mái chùa, sân Đại Lễ và Bảo Tháp 13 Tầng.
+  - **Phần tử đồ họa bản đồ**: Ghim SVG tùy biến theo trạng thái (Đang xem, Đã xem, Chưa xem), vòng tròn bán kính cảm biến Geofence động (15m – 30m), vệt đường dẫn lộ trình hành hương Polyline.
+- **Mã vạch QR & Tiện ích hỗ trợ**:
+  - **QRCode Generator** (`qrcode`): Tạo mã QR SVG/Canvas trực tiếp trên trình duyệt phục vụ in tem chiêm bái tại Cổng Quản Trị.
+  - **QR Code Scanner**: Trình đọc mã QR thời gian thực thông qua camera thiết bị của du khách, tự động nhận diện mã công trình và chuyển hướng bài thuyết minh.
+  - **Browser Fingerprinting** (`src/utils/fingerprint.ts`): Thuật toán băm vô danh (Canvas Hash, WebGL Vendor, User Agent, Múi giờ) thống kê lượng khách viếng thăm trung thực mà không xâm phạm quyền riêng tư hoặc lưu cookie.
+
+---
+
+### 2. Động Cơ Âm Thanh & Giọng Đọc Đa Ngôn Ngữ (Audio & Speech Engine)
+- **Web Speech Synthesis API**:
+  - Phát âm thanh thuyết minh trực tiếp trên phần cứng thiết bị của người dùng, không phụ thuộc vào kết nối mạng khi đọc, độ trễ bằng **0ms** và không tốn chi phí băng thông máy chủ.
+- **5 Hệ Thống Giọng Đọc (Voice Engines)**:
+  - *Chị Google*: Giọng đọc phổ thông, tự nhiên, gần gũi với người Việt.
+  - *Google Cloud TTS*: Âm hưởng thông minh chuẩn Neural AI, trầm ấm, thanh tịnh.
+  - *Microsoft Edge / Bing*: Giọng điệu mượt mà, phong thái Hoài My / Nam Minh.
+  - *TikTok Voice*: Phong cách hiện đại, giàu năng lượng truyền cảm.
+  - *Giọng hệ thống / Trình duyệt*: Tự động thích ứng với giọng đọc bản địa của từng hệ điều hành (iOS Safari, Android Chrome, Windows, macOS).
+- **Bộ điều khiển âm thanh toàn diện (`speechEngine`)**:
+  - Tự động đồng bộ cấu trúc bài thuyết minh: **Tiêu đề → Giới thiệu → Thuyết minh chi tiết**.
+  - Thanh phát âm thanh chân trang: Nút Phát / Tạm dừng, tua lùi 10s (`-10s`), tua tiến 10s (`+10s`), thanh kéo tiến trình (Seekbar), đếm ngược thời lượng.
+  - Tùy chỉnh tốc độ đọc (`0.75x` đến `1.30x`) và cao độ giọng (`0.8` đến `1.3`).
+  - **Nút tắt âm thanh khẩn cấp (Emergency Audio Mute)**: Bố trí nổi bật trên thanh tiêu đề và thanh điều khiển để lập tức ngắt âm thanh khi bước vào chốn trang nghiêm.
+- **Bộ tổng hợp âm thanh chuông chùa thuần Node.js (`src/utils/audioSynth.ts`)**:
+  - Tự động tạo luồng sóng âm 16-bit PCM Stereo WAV tần số thấp (chuông đại hồng chung, tiếng khánh chùa) phục vụ các endpoint `/api/audio/bell` và `/api/audio/stream/:poiId` mà không cần file media tĩnh nặng hay phần mềm bên thứ ba như FFmpeg.
+
+---
+
+### 3. Công Nghệ Định Vị GPS & Cảm Biến Vùng (GPS & Geofencing)
+- **HTML5 Geolocation API**:
+  - Chế độ định vị chính xác cao (`enableHighAccuracy: true`, `timeout: 10000`, `maximumAge: 2000`).
+- **Bộ Lọc Kalman Đa Chiều (Mobile 2D Extended Kalman Filter)**:
+  - Cài đặt tại `src/hooks/useGPSTracker.ts` và `src/server/services/gpsFilterService.ts`.
+  - Triệt tiêu hiện tượng nhiễu sóng GPS, trôi tọa độ và tín hiệu phản xạ do các công trình bê tông cao tầng và mái chùa che khuất.
+- **Thuật toán tính khoảng cách Haversine & Geodesic**:
+  - Tính toán khoảng cách chính xác theo độ cong hình cầu của Trái Đất giữa tọa độ khách hành hương và tâm vùng Geofence của từng điểm POI.
+- **Dịch vụ không gian địa lý Python (`python/spatial_ai_service.py`)**:
+  - Xây dựng bằng Python 3, cung cấp công thức trắc địa Vincenty Geodesic và thuật toán kiểm tra điểm nằm trong đa giác (Point-in-Polygon).
+
+---
+
+### 4. Công Nghệ Máy Chủ & Backend (Backend Architecture)
+- **Môi trường thực thi**: **Node.js 22 LTS** kết hợp trình thực thi siêu tốc **`tsx`** (TypeScript Execute), biên dịch và chạy trực tiếp TypeScript mà không cần bước build trung gian ở chế độ phát triển.
+- **Framework Web**: **Express.js 4.21** (`express`, `@types/express`) xử lý định tuyến RESTful, middleware bảo mật và xử lý lỗi tập trung.
+- **Kiến trúc phân tầng 3 lớp (Clean 3-Tier Layered Architecture)**:
+  - **Controllers**: `authController.ts`, `poiController.ts`, `analyticsController.ts` — Tiếp nhận và chuẩn hóa dữ liệu yêu cầu HTTP.
+  - **Services**: `authService.ts`, `poiService.ts`, `aiTranslationService.ts`, `analyticsService.ts`, `gpsFilterService.ts` — Đảm nhiệm toàn bộ nghiệp vụ logic của hệ thống.
+  - **Repositories**: `poiRepository.ts`, `analyticsRepository.ts`, `mongoClient.ts`, `db.ts` — Trừu tượng hóa việc truy vấn và lưu trữ dữ liệu.
+- **Tích hợp Vite Middleware nguyên khối**:
+  - Khởi chạy thống nhất trên một cổng mạng duy nhất (`PORT 3000`), vừa cung cấp REST API vừa phục vụ tài nguyên Vite SPA mà không gặp lỗi phân tán cổng hay cấu hình CORS phức tạp.
+
+---
+
+### 5. Trí Tuệ Nhân Tạo & Chuyển Ngữ Tự Động (AI & Multilingual Translation)
+- **Google Gen AI SDK v2.4.0** (`@google/genai`):
+  - Tích hợp mô hình ngôn ngữ lớn **Gemini 2.5 Flash** / **Gemini 3.8 Flash** thông qua cổng API bảo mật phía máy chủ (`/api/translate`).
+- **Bảo tồn danh xưng và thuật ngữ Phật giáo (Sacred Terminology Preservation)**:
+  - Prompt thiết kế chuyên biệt để giữ nguyên trang nghiêm các danh xưng thiêng liêng: *Việt Nam Quốc Tự*, *Đại Hùng Bửu Điện*, *Bồ Tát Thích Quảng Đức*, *Đại Hồng Chung*, *Bảo Tháp 13 Tầng*...
+- **Từ điển dự phòng ngoại tuyến (Offline Multilingual Dictionary)**:
+  - Module `src/translations/index.ts` cung cấp đầy đủ bản dịch sẵn có cho 12 ngôn ngữ quốc tế (Việt, Anh, Trung, Nhật, Hàn, Pháp, Đức, Tây Ban Nha, Nga, Thái, Indonesia, Ý) ngay cả khi không có kết nối internet hay không có API key.
+
+---
+
+### 6. Cơ Sở Dữ Liệu & Lưu Trữ Dữ Liệu (Databases & Storage)
+- **Hệ cơ sở dữ liệu chính: MongoDB** (`mongodb` v7.7.0):
+  - Tương thích hoàn toàn với MongoDB Server cục bộ hoặc MongoDB Atlas trên đám mây.
+  - **Chỉ mục không gian địa lý 2dsphere (`2dsphere index`)**: Hỗ trợ tìm kiếm các điểm di tích gần nhất bằng truy vấn không gian `$nearSphere` và `$geoWithin` với tọa độ chuẩn GeoJSON Point `[kinh độ, vĩ độ]`.
+  - **6 BSON Collections**:
+    1. `pois`: Danh mục điểm chiêm bái, tọa độ, bán kính, hình ảnh và bài viết đa ngôn ngữ.
+    2. `audio_tracks`: Metadata về giọng đọc, thời lượng và đường dẫn âm thanh.
+    3. `visitor_sessions`: Thông tin phiên viếng thăm (vô danh, bảo mật).
+    4. `geofence_events`: Nhật ký kích hoạt vùng cảm biến theo thời gian thực.
+    5. `system_logs`: Ghi nhận sự cố và hoạt động hệ thống.
+    6. `admin_users`: Tài khoản quản trị phân quyền.
+- **Cơ chế lưu trữ dự phòng tự động (Embedded In-Memory Fallback)**:
+  - Lớp `MongoDatabaseEngine` tự động chuyển đổi sang kho dữ liệu bộ nhớ trong khi chạy cục bộ mà chưa kết nối MongoDB Atlas, giúp ứng dụng hoạt động trơn tru 100% ngay từ lần chạy đầu tiên.
+
+---
+
+### 7. Bảo Mật & Xác Thực (Security & Authentication)
+- **Mã hóa mật khẩu an toàn**:
+  - Thuật toán băm mật khẩu chuẩn **SHA-256 kèm chuỗi Salt ngẫu nhiên** (`src/utils/cryptoUtils.ts`) bảo vệ tuyệt đối thông tin quản trị viên.
+- **Kiểm soát truy cập theo vai trò (RBAC - Role-Based Access Control)**:
+  - Quản trị viên đăng nhập nhận Bearer Token để thực hiện các thao tác nhạy cảm (thêm/sửa/xóa POIs, chỉnh sửa bài thuyết minh, đổi giọng đọc mặc định).
+- **Phân tách giao diện tuyệt đối**:
+  - Người dùng phổ thông hoàn toàn không thấy nút đăng nhập quản trị trong luồng chiêm bái thông thường; cổng quản trị chỉ mở khi có tham số đặc biệt `?admin=login` hoặc phím tắt bảo mật.
+
+---
+
+### 8. DevOps, Tự Động Hóa & Kiểm Thử (DevOps, CI/CD & Testing)
+- **Container hóa (Containerization)**:
+  - `Dockerfile` tối ưu hóa đa tầng (Multi-stage build) và `docker-compose.yml` khởi chạy đồng bộ Node.js và MongoDB chỉ với một câu lệnh.
+- **Tự động hóa CI/CD**:
+  - Tích hợp GitHub Actions (`.github/workflows/ci-cd.yml`) tự động kiểm tra cú pháp (Linting), kiểm tra kiểu (Typecheck), chạy kiểm thử đơn vị và đóng gói ứng dụng.
+- **Kiểm thử tự động (Automated Testing)**:
+  - Bộ kiểm thử `test/backend.test.ts` chạy trên nền tảng **Node.js Test Runner** (`node --test`), kiểm tra tính đúng đắn của hàm tính khoảng cách địa lý, bộ lọc GPS, dịch vụ xác thực tài khoản và các endpoint API.
+- **Kịch bản triển khai không gián đoạn**:
+  - Tập lệnh `scripts/deploy.sh` hỗ trợ triển khai mã nguồn lên máy chủ Linux với cơ chế Zero-Downtime.
+
+---
+
+### 📊 Bảng Tổng Hợp Công Nghệ & Thư Viện
+
+| Lĩnh Vực / Phân Hệ | Công Nghệ / Thư Viện | Phiên Bản | Mục Đích Sử Dụng |
+| :--- | :--- | :--- | :--- |
+| **Giao diện người dùng** | React | `^19.0.1` | Xây dựng UI linh hoạt, tối ưu hiệu năng render |
+| **Ngôn ngữ lập trình** | TypeScript | `^7.0.2` | Đảm bảo tính nhất quán và an toàn kiểu dữ liệu |
+| **Công cụ đóng gói** | Vite | `^8.3.0` | Khởi động máy chủ phát triển và đóng gói mã nguồn |
+| **Định kiểu CSS** | Tailwind CSS v4 | `^4.3.3` | Tạo giao diện phong cách Thiền viện Á Đông |
+| **Bản đồ tương tác** | Leaflet | `^1.9.4` | Hiển thị bản đồ khuôn viên, vệ tinh và Geofence |
+| **Biểu tượng vector** | Lucide React | `^0.546.0` | Icon trực quan cho các chức năng bản đồ & audio |
+| **Hiệu ứng diễn hoạt** | Motion (Framer) | `^12.23.24` | Animation mượt mà cho drawer và thông báo |
+| **Mã vạch QR** | QRCode | `^1.5.4` | Tạo tem QR chiêm bái cho 8 điểm di tích |
+| **Máy chủ Backend** | Express | `^4.21.2` | Cung cấp RESTful API và điều phối dịch vụ |
+| **Trình thực thi TS** | tsx | `^4.21.0` | Chạy TypeScript trên Node.js không cần tiền biên dịch |
+| **Trí tuệ nhân tạo** | @google/genai | `^2.4.0` | Tích hợp Gemini 2.5/3.8 Flash dịch thuật tự động |
+| **Cơ sở dữ liệu** | MongoDB Driver | `^7.7.0` | Thao tác dữ liệu BSON và chỉ mục không gian 2dsphere |
+| **Định vị & Lọc sóng** | Kalman Filter 2D | Thuật toán nội tại | Khử nhiễu GPS và ổn định vị trí khách hành hương |
+| **Xử lý âm thanh** | Web Speech API | Trình duyệt | Phát giọng đọc đa ngôn ngữ với độ trễ 0ms |
+| **Tổng hợp sóng âm** | PCM WAV Synthesizer | Thuật toán nội tại | Tạo âm chuông chùa 16-bit trực tiếp trên máy chủ |
+| **Tính toán không gian** | Python 3 | `3.9+` | Hỗ trợ tính toán trắc địa nâng cao (Haversine/Vincenty) |
+| **Đóng gói & Triển khai** | Docker / Compose | Multi-stage | Đóng gói môi trường đồng nhất và triển khai máy chủ |
+| **Kiểm thử tự động** | Node.js Test Runner | `node:test` | Kiểm thử tính toàn vẹn của API và thuật toán |
 
 ---
 

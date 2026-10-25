@@ -69,19 +69,6 @@ router.get('/mongodb/status', async (_req, res) => {
   });
 });
 
-// Backward-compatibility alias for previous status endpoint
-router.get('/supabase/status', async (_req, res) => {
-  const { mongoManager } = await import('../repositories/mongoClient.js');
-  const health = await mongoManager.checkHealth();
-  res.json({
-    success: true,
-    data: {
-      ...health,
-      migratedTo: 'MongoDB',
-    },
-  });
-});
-
 // Default Voice Configuration (Configured by Admin, applied by default to users)
 let defaultVoiceConfig = {
   voiceEngine: 'chi-google',
