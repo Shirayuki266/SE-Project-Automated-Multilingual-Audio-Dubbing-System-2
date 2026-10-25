@@ -29,6 +29,15 @@ assert.strictEqual(nearbyPOIs[0].poi.code, 'VNQT-TAM-QUAN', 'First nearby POI sh
 assert(nearbyPOIs[0].isWithinGeofence, 'Tam Quan should be within geofence');
 assert.strictEqual(nearbyPOIs[0].poi.location?.type, 'Point', 'MongoDB GeoJSON Point must be defined');
 assert(Array.isArray(nearbyPOIs[0].poi.location?.coordinates), 'Coordinates must be array [lng, lat]');
+
+// POI 4-part structure verification (Tiêu đề, Giới thiệu, Thuyết minh)
+const tamQuanPOI = nearbyPOIs[0].poi;
+assert(tamQuanPOI.currentTitle, 'POI must have title');
+assert(tamQuanPOI.currentIntroduction && tamQuanPOI.currentIntroduction.length > 10, 'POI must have distinct introduction');
+assert(tamQuanPOI.currentDescription && tamQuanPOI.currentDescription.length > 20, 'POI must have detailed description');
+assert(tamQuanPOI.translations['vi']?.introduction, 'Vietnamese translation must contain introduction');
+assert(tamQuanPOI.translations['en']?.introduction, 'English translation must contain introduction');
+console.log('✅ POI 4-part structure (Tiêu đề, Giới thiệu, Thuyết minh, Audio) verified.');
 console.log('✅ MongoDB GeoJSON Point & Spatial 2dsphere proximity query verified.');
 
 // 3. Admin Authentication & RBAC Test

@@ -96,6 +96,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [selectedArticlePoiId, setSelectedArticlePoiId] = useState<string>(pois[0]?.poi_id || '');
   const [selectedArticleLang, setSelectedArticleLang] = useState<LanguageCode>('vi');
   const [articleTitle, setArticleTitle] = useState('');
+  const [articleIntro, setArticleIntro] = useState('');
   const [articleDesc, setArticleDesc] = useState('');
   const [isSavingArticle, setIsSavingArticle] = useState(false);
   const [isAiTranslatingArticle, setIsAiTranslatingArticle] = useState(false);
@@ -110,6 +111,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     campus_id: 'vnqt-campus-01',
     code: '',
     title_vi: '',
+    intro_vi: '',
     description_vi: '',
     latitude: 10.77125,
     longitude: 106.67140,
@@ -194,6 +196,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     if (currentPoi) {
       const trans = currentPoi.translations[selectedArticleLang] || currentPoi.translations['vi'];
       setArticleTitle(trans?.title || currentPoi.code);
+      setArticleIntro(trans?.introduction || '');
       setArticleDesc(trans?.description || '');
     }
   }, [selectedArticlePoiId, selectedArticleLang, pois]);
@@ -339,7 +342,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     setAudioTestingLang(lang);
     const title = `${trans.title || poi.code} (${lang.toUpperCase()})`;
     setCurrentSpeakingTitle(title);
-    speechEngine.speak(trans.description, title, lang, poi.poi_id, trans.audio_url);
+    speechEngine.speak(trans.description, title, lang, poi.poi_id, trans.audio_url, trans.introduction);
   };
 
   // Save Article (Translation)
@@ -358,6 +361,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         },
         body: JSON.stringify({
           title: articleTitle,
+          introduction: articleIntro,
           description: articleDesc,
         }),
       });
@@ -388,6 +392,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       const data = await res.json();
       if (data.success && data.data) {
         setArticleTitle(data.data.title);
+        setArticleIntro(data.data.introduction || '');
         setArticleDesc(data.data.description);
         onRefreshPOIs();
         showNotify(`Gemini AI đã dịch tự động bài viết sang [${selectedArticleLang.toUpperCase()}]!`);
@@ -409,6 +414,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       campus_id: 'vnqt-campus-01',
       code: `VNQT-${String(pois.length + 1).padStart(2, '0')}`,
       title_vi: '',
+      intro_vi: '',
       description_vi: '',
       latitude: 10.7713,
       longitude: 106.6714,
@@ -425,6 +431,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       campus_id: poi.campus_id,
       code: poi.code,
       title_vi: poi.translations['vi']?.title || '',
+      intro_vi: poi.translations['vi']?.introduction || '',
       description_vi: poi.translations['vi']?.description || '',
       latitude: poi.latitude,
       longitude: poi.longitude,
@@ -461,8 +468,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         const d = await res.json();
         if (!d.success) throw new Error(d.error);
 
-        // Also update Vietnamese title and description
-        if (formData.title_vi && formData.description_vi) {
+        // Also update Vietnamese title, introduction and description
+        if (formData.title_vi && (formData.description_vi || formData.intro_vi)) {
           await fetch(`/api/pois/${editingPoi.poi_id}/translations/vi`, {
             method: 'PUT',
             headers: {
@@ -471,6 +478,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
             },
             body: JSON.stringify({
               title: formData.title_vi,
+              introduction: formData.intro_vi,
               description: formData.description_vi,
             }),
           });
@@ -1230,10 +1238,23 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
                       <div>
                         <label className="block text-xs font-semibold text-[#19231b] mb-1">
-                          Nội Dung Thuyết Minh Tiếng Việt
+                          Phần Giới Thiệu Tóm Tắt (1-2 câu tổng quan)
                         </label>
                         <textarea
-                          rows={3}
+                          rows={2}
+                          value={formData.intro_vi}
+                          onChange={(e) => setFormData({ ...formData, intro_vi: e.target.value })}
+                          className="w-full px-3.5 py-2 rounded-xl bg-[#f7f9f6] border border-[#e2eae4] text-xs text-[#19231b] focus:border-[#2d5a37] focus:bg-white outline-hidden leading-relaxed"
+                          placeholder="Đoạn văn ngắn giới thiệu tổng quan điểm di tích..."
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-[#19231b] mb-1">
+                          Nội Dung Thuyết Minh Chi Tiết (Tiếng Việt)
+                        </label>
+                        <textarea
+                          rows={4}
                           value={formData.description_vi}
                           onChange={(e) => setFormData({ ...formData, description_vi: e.target.value })}
                           className="w-full px-3.5 py-2 rounded-xl bg-[#f7f9f6] border border-[#e2eae4] text-xs text-[#19231b] focus:border-[#2d5a37] focus:bg-white outline-hidden leading-relaxed"
@@ -1752,10 +1773,10 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   </div>
                 </div>
 
-                {/* Title */}
+                {/* 1. Title */}
                 <div>
                   <label className="block text-xs font-semibold text-[#19231b] mb-1.5">
-                    Tiêu Đề Công Trình ({selectedArticleLang.toUpperCase()})
+                    1. Tiêu Đề Công Trình ({selectedArticleLang.toUpperCase()})
                   </label>
                   <input
                     type="text"
@@ -1767,10 +1788,29 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   />
                 </div>
 
-                {/* Description / Article Body */}
+                {/* 2. Introduction */}
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-xs font-semibold text-[#19231b]">
+                      2. Phần Giới Thiệu Tóm Tắt ({selectedArticleLang.toUpperCase()})
+                    </label>
+                    <span className="text-[10px] text-[#7a8e80]">
+                      Đoạn văn ngắn (1-2 câu) giới thiệu tổng quan điểm chiêm bái
+                    </span>
+                  </div>
+                  <textarea
+                    rows={3}
+                    value={articleIntro}
+                    onChange={(e) => setArticleIntro(e.target.value)}
+                    className="w-full p-3.5 rounded-2xl bg-[#f7f9f6] border border-[#e2eae4] text-xs sm:text-sm text-[#19231b] leading-relaxed outline-hidden focus:border-[#2d5a37] focus:bg-white transition-all"
+                    placeholder="Nhập phần giới thiệu tổng quan công trình..."
+                  />
+                </div>
+
+                {/* 3. Description / Article Body */}
                 <div>
                   <label className="block text-xs font-semibold text-[#19231b] mb-1.5">
-                    Toàn Văn Bài Viết Thuyết Minh
+                    3. Toàn Văn Bài Viết Thuyết Minh Chi Tiết
                   </label>
                   <textarea
                     rows={8}
@@ -1792,7 +1832,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                       } else {
                         const title = `${articleTitle || 'Bài Thuyết Minh'} (${selectedArticleLang.toUpperCase()})`;
                         setCurrentSpeakingTitle(title);
-                        speechEngine.speak(articleDesc, title, selectedArticleLang);
+                        speechEngine.speak(articleDesc, title, selectedArticleLang, undefined, undefined, articleIntro);
                       }
                     }}
                     className={`px-4 py-2 rounded-full text-xs font-bold transition-all flex items-center gap-1.5 shadow-xs ${

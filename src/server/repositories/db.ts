@@ -178,7 +178,7 @@ class MongoDatabaseEngine {
   // --- Admin CRUD for POIs ---
   public createPOI(
     data: Omit<POIEntity, 'poi_id' | 'created_at'>,
-    initialTranslation?: { title: string; desc: string; lang: string },
+    initialTranslation?: { title: string; desc: string; lang: string; intro?: string },
     imageUrl?: string
   ): RichPOI {
     const poi_id = 'poi-' + Date.now().toString(36);
@@ -201,7 +201,7 @@ class MongoDatabaseEngine {
         poi_id,
         language_code: initialTranslation.lang || 'vi',
         title: initialTranslation.title,
-        introduction: initialTranslation.desc.slice(0, 100),
+        introduction: initialTranslation.intro || (initialTranslation.desc.length > 120 ? initialTranslation.desc.slice(0, 120) : initialTranslation.desc),
         description: initialTranslation.desc,
         audio_url: undefined,
         is_ai_generated: false,

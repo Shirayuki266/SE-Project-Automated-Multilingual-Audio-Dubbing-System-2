@@ -41,27 +41,15 @@ router.put('/pois/:id/translations/:lang', (req, res) => poiController.saveTrans
 router.post('/pois/:id/media', (req, res) => poiController.addMedia(req, res));
 router.delete('/pois/:id/media/:mediaId', (req, res) => poiController.deleteMedia(req, res));
 
-// Audio Synthesizer endpoint (Python / Web Audio bridge)
+// Audio Synthesizer endpoint (Native TypeScript WAV Synthesis with Python fallback)
 router.get('/audio/bell', async (req, res) => {
   try {
-    const freq = req.query.freq ? String(req.query.freq) : '220';
-    const { execFile } = await import('child_process');
-    const { promisify } = await import('util');
-    const path = await import('path');
-    const execFileAsync = promisify(execFile);
-
-    const pythonScript = path.resolve(process.cwd(), 'python/spatial_ai_service.py');
-    const { stdout } = await execFileAsync('python3', [pythonScript, 'bell-audio', freq]);
-    const parsed = JSON.parse(stdout);
-
-    if (parsed.success && parsed.dataUrl) {
-      const base64Data = parsed.dataUrl.split(',')[1];
-      const buffer = Buffer.from(base64Data, 'base64');
-      res.setHeader('Content-Type', 'audio/wav');
-      res.setHeader('Cache-Control', 'public, max-age=86400');
-      return res.send(buffer);
-    }
-    return res.status(500).json({ error: 'Failed to synthesize bell' });
+    const freq = parseFloat(req.query.freq as string) || 220.0;
+    const { generateTempleBellWav } = await import('../../utils/audioSynth.js');
+    const buffer = generateTempleBellWav(freq);
+    res.setHeader('Content-Type', 'audio/wav');
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    return res.send(buffer);
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }

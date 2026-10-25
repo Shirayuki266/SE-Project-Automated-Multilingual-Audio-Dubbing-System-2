@@ -232,32 +232,78 @@ export const POIDetailDrawer: React.FC<POIDetailDrawerProps> = ({
             </div>
           </div>
 
-          {/* 1. MỤC TIÊU ĐỀ & GIỚI THIỆU */}
-          <div className="bg-[#f2f7f3] border border-[#d8e6db] rounded-2xl p-4 sm:p-5 space-y-1.5">
-            <div className="flex items-center gap-2 text-xs font-bold text-[#2d5a37] uppercase tracking-wider">
-              <Sparkles className="w-4 h-4 text-[#2d5a37]" />
-              <span>Giới Thiệu Điểm Di Tích</span>
+          {/* 1. MỤC TIÊU ĐỀ */}
+          <div className="border-b border-[#e2eae4] pb-2">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-[10px] font-mono font-bold uppercase text-[#2d5a37] bg-[#eef5f0] px-2 py-0.5 rounded-full border border-[#cde0d2]">
+                {poi.code}
+              </span>
+              <span className="text-xs font-semibold text-[#5c7362] capitalize">
+                Khuôn viên: {poi.location_type}
+              </span>
             </div>
-            <p className="text-xs sm:text-sm text-[#27382b] font-medium leading-relaxed">
-              {intro}
+            <h2 className="font-serif font-bold text-xl sm:text-2xl text-[#19231b] leading-snug">
+              {title}
+            </h2>
+          </div>
+
+          {/* 2. MỤC GIỚI THIỆU */}
+          <div className="bg-gradient-to-r from-[#f0f6f2] to-[#e8f1ea] border-l-4 border-[#2d5a37] rounded-r-2xl p-4 sm:p-5 shadow-2xs space-y-1.5">
+            <div className="flex items-center gap-2 text-xs font-bold text-[#1e3d25] uppercase tracking-wider">
+              <Sparkles className="w-4 h-4 text-[#2d5a37]" />
+              <span>Phần Giới Thiệu (Tổng Quan Điểm Chiêm Bái)</span>
+            </div>
+            <p className="text-sm sm:text-base text-[#192b1d] font-medium leading-relaxed italic">
+              "{intro}"
             </p>
           </div>
 
-          {/* 2. MỤC NỘI DUNG THUYẾT MINH CHI TIẾT */}
-          <div className="space-y-2">
+          {/* 3. MỤC THUYẾT MINH CHI TIẾT */}
+          <div className="space-y-3">
             <div className="flex items-center justify-between border-b border-[#e2eae4] pb-2">
               <div className="flex items-center gap-2 text-xs font-bold text-[#19231b] uppercase tracking-wider">
                 <BookOpen className="w-4 h-4 text-[#2d5a37]" />
                 <span>Nội Dung Thuyết Minh Chi Tiết</span>
               </div>
-              <span className="text-[11px] text-[#5c7362] font-medium">
+              <span className="text-[11px] text-[#5c7362] font-semibold bg-[#f0f4f1] px-2.5 py-0.5 rounded-full border border-[#d6e5d9]">
                 Ngôn ngữ: <strong>{currentLang.toUpperCase()}</strong>
               </span>
             </div>
 
-            <div className="text-sm sm:text-base text-[#1f2c22] leading-relaxed whitespace-pre-line font-light pt-1">
+            <div className="text-sm sm:text-base text-[#1f2c22] leading-relaxed whitespace-pre-line font-normal pt-1 bg-white p-4 sm:p-5 rounded-2xl border border-[#eef3ef] shadow-2xs">
               {content}
             </div>
+          </div>
+
+          {/* 4. MỤC AUDIO THUYẾT MINH ĐỐI ỨNG */}
+          <div className="flex items-center justify-between p-3.5 sm:p-4 rounded-2xl bg-[#eef5f0] border border-[#d2e4d6] shadow-2xs">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-full bg-[#2d5a37] text-white flex items-center justify-center shadow-xs">
+                <Volume2 className="w-4 h-4" />
+              </div>
+              <div>
+                <span className="text-xs font-bold text-[#1e3d25] block">Audio Thuyết Minh Điểm POI</span>
+                <span className="text-[11px] text-[#5c7362]">
+                  Đang phát chuẩn ngữ điệu [{currentLang.toUpperCase()}] • {poi.code}
+                </span>
+              </div>
+            </div>
+            <button
+              onClick={isPlaying && !isPaused ? onPause : isPaused ? onResume : onPlay}
+              className="px-4 py-2 rounded-full bg-[#2d5a37] hover:bg-[#23462b] text-white text-xs font-bold flex items-center gap-1.5 shadow-sm active:scale-95 transition-all"
+            >
+              {isPlaying && !isPaused ? (
+                <>
+                  <Pause className="w-3.5 h-3.5 fill-current" />
+                  <span>Tạm dừng</span>
+                </>
+              ) : (
+                <>
+                  <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
+                  <span>{isPaused ? 'Tiếp tục nghe' : 'Nghe Audio'}</span>
+                </>
+              )}
+            </button>
           </div>
         </div>
 

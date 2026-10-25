@@ -16,7 +16,7 @@ export class POIRepository {
 
   public create(
     poiData: Omit<POIEntity, 'poi_id' | 'created_at'>,
-    translation?: { title: string; desc: string; lang: string },
+    translation?: { title: string; desc: string; lang: string; intro?: string },
     imageUrl?: string
   ): RichPOI {
     return db.createPOI(poiData, translation, imageUrl);

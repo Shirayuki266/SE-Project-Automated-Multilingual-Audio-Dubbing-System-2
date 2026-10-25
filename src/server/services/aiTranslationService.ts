@@ -55,6 +55,7 @@ export class AITranslationService {
     // 2. Base Vietnamese translation
     const viTrans = poi.translations['vi'] || Object.values(poi.translations)[0];
     const originalTitle = viTrans ? viTrans.title : poi.code;
+    const originalIntro = viTrans?.introduction || (viTrans?.description ? viTrans.description.slice(0, 120) : '');
     const originalDesc = viTrans ? viTrans.description : '';
     const targetLangName = LANGUAGE_NAMES[lang] || lang.toUpperCase();
 
@@ -65,8 +66,9 @@ export class AITranslationService {
         poi_id: poi.poi_id,
         language_code: lang,
         title: `${originalTitle} (${targetLangName})`,
+        introduction: originalIntro,
         description: originalDesc,
-        audio_url: `/api/audio/bell?freq=220`,
+        audio_url: undefined,
         is_ai_generated: true,
       };
       db.saveTranslation(fallback);
@@ -77,16 +79,18 @@ export class AITranslationService {
     try {
       const client = this.aiClient || new GoogleGenAI({});
       const prompt = `You are an expert Buddhist scholar, cultural historian, and reverent translator for Việt Nam Quốc Tự Pagoda in Ho Chi Minh City, Vietnam.
-Translate the following sacred pagoda monument narration from the Vietnamese original into ${targetLangName}.
+Translate the following sacred pagoda monument content from the Vietnamese original into ${targetLangName}.
 Preserve authentic Buddhist reverence, meditative tone, and cultural dignity.
 
-Original Title: ${originalTitle}
-Original Narration Transcript:
+Original Title (Tiêu đề): ${originalTitle}
+Original Introduction (Giới thiệu tóm tắt): ${originalIntro}
+Original Narration Transcript (Thuyết minh chi tiết):
 ${originalDesc}
 
 Respond ONLY with valid JSON in this exact structure:
 {
   "translatedTitle": "...",
+  "translatedIntroduction": "...",
   "translatedDescription": "..."
 }`;
 
@@ -108,26 +112,14 @@ Respond ONLY with valid JSON in this exact structure:
         parsed = JSON.parse(cleaned);
       }
 
-      // Generate Buddhist bell intro audio via Python engine
-      let audioUrl = `/api/audio/bell?freq=220`;
-      try {
-        const pythonPath = path.resolve(process.cwd(), 'python/spatial_ai_service.py');
-        const { stdout } = await execFileAsync('python3', [pythonPath, 'bell-audio', '220']);
-        const pyResult = JSON.parse(stdout);
-        if (pyResult.success && pyResult.dataUrl) {
-          audioUrl = pyResult.dataUrl;
-        }
-      } catch (pyErr) {
-        console.warn('[AI Audio] Python chime notice:', pyErr);
-      }
-
       const newTranslation: POITranslation = {
         translation_id: `trans-${poi.poi_id}-${lang}`,
         poi_id: poi.poi_id,
         language_code: lang,
         title: parsed.translatedTitle || originalTitle,
+        introduction: parsed.translatedIntroduction || originalIntro,
         description: parsed.translatedDescription || originalDesc,
-        audio_url: audioUrl,
+        audio_url: undefined,
         is_ai_generated: true,
       };
 
@@ -141,8 +133,9 @@ Respond ONLY with valid JSON in this exact structure:
         poi_id: poi.poi_id,
         language_code: lang,
         title: originalTitle,
+        introduction: originalIntro,
         description: originalDesc,
-        audio_url: `/api/audio/bell?freq=220`,
+        audio_url: undefined,
         is_ai_generated: true,
       };
       db.saveTranslation(fallback);
