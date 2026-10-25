@@ -1,0 +1,9 @@
+{
+  "name": "Việt Nam Quốc Tự – Thuyết Minh Tự Động",
+  "description": "Hệ thống thuyết minh tự động đa ngôn ngữ cho di tích Phật giáo Việt Nam Quốc Tự",
+  "version": "1.0.0",
+  "permissions": [],
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
