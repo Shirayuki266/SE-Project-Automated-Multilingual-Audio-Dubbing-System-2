@@ -247,6 +247,16 @@ export const VoiceSelectorModal: React.FC<VoiceSelectorModalProps> = ({
               </div>
             </div>
           </div>
+
+          {/* Mobile Autoplay & User Gesture Guidance Notice */}
+          <div className="p-3 bg-[#eef5f0] rounded-2xl border border-[#cbe1d0] flex items-start gap-2.5 text-[11px] text-[#224029]">
+            <div className="w-5 h-5 rounded-full bg-[#2d5a37] text-white flex items-center justify-center flex-shrink-0 mt-0.5 text-[10px] font-bold">
+              i
+            </div>
+            <div className="leading-relaxed">
+              <span className="font-bold">Lưu ý trên thiết bị di động (iOS Safari / Android Chrome):</span> Trình duyệt di động kiểm soát Autoplay nghiêm ngặt. Hãy bấm <span className="font-semibold text-[#2d5a37]">"Nghe thử"</span> hoặc chạm vào nút phát tại các điểm chiêm bái để kích hoạt âm thanh chuẩn xác, không bị méo tiếng hay nghẽn hàng đợi.
+            </div>
+          </div>
         </div>
 
         {/* Footer with Test Button and Apply Button */}
