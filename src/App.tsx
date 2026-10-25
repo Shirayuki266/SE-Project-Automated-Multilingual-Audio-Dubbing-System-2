@@ -229,10 +229,19 @@ export default function App() {
       }
 
       const finalTitle = trans?.title || poi.translations['vi']?.title || poi.code;
+      const finalIntro = trans?.introduction || poi.translations['vi']?.introduction || '';
       const finalAudioText = trans?.description || poi.translations['vi']?.description || '';
 
-      // Direct speech synthesis without bell chime, passing poi_id and audio_url
-      speechEngine.playNarration(finalAudioText, targetLang, finalTitle, false, poi.poi_id, trans?.audio_url);
+      // Direct speech synthesis without bell chime, passing title, intro, and detailed narration
+      speechEngine.playNarration(
+        finalAudioText,
+        targetLang,
+        finalTitle,
+        false,
+        poi.poi_id,
+        trans?.audio_url,
+        finalIntro
+      );
 
       // Record visit status
       setVisitedPoiIds((prev) => {
@@ -507,6 +516,7 @@ export default function App() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {filteredPOIs.map((poi, idx) => {
                 const title = poi.translations[currentLang]?.title || poi.translations['vi']?.title || poi.code;
+                const intro = poi.translations[currentLang]?.introduction || poi.translations['vi']?.introduction || '';
                 const desc = poi.translations[currentLang]?.description || poi.translations['vi']?.description || '';
                 const mediaItem = poi.media[0];
                 const distance = Math.round(
@@ -580,13 +590,24 @@ export default function App() {
                       </div>
                     </div>
 
-                    <div>
+                    <div className="space-y-1.5">
                       <h3 className="font-serif font-bold text-base text-[#19231b] group-hover:text-[#2d5a37] transition-colors line-clamp-1">
                         {title}
                       </h3>
-                      <p className="text-xs text-[#5c7362] line-clamp-2 mt-1 leading-relaxed">
-                        {desc}
-                      </p>
+                      {intro ? (
+                        <div className="bg-[#f2f7f3] p-2 rounded-xl border border-[#d8e6db]">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-[#2d5a37] block mb-0.5">
+                            Giới thiệu:
+                          </span>
+                          <p className="text-xs text-[#27382b] line-clamp-2 leading-relaxed font-medium">
+                            {intro}
+                          </p>
+                        </div>
+                      ) : (
+                        <p className="text-xs text-[#5c7362] line-clamp-2 leading-relaxed">
+                          {desc}
+                        </p>
+                      )}
                     </div>
 
                     <div className="pt-3 mt-2 border-t border-gray-100 flex items-center justify-between">
@@ -676,6 +697,7 @@ export default function App() {
             <div className="space-y-3 pt-1">
               {pois.map((poi, index) => {
                 const title = poi.translations[currentLang]?.title || poi.translations['vi']?.title || poi.code;
+                const intro = poi.translations[currentLang]?.introduction || poi.translations['vi']?.introduction || '';
                 const desc = poi.translations[currentLang]?.description || poi.translations['vi']?.description || '';
                 const mediaItem = poi.media[0];
                 const isSelected = activePOI?.poi_id === poi.poi_id;
@@ -735,8 +757,8 @@ export default function App() {
                         <h4 className="font-serif font-bold text-sm text-[#19231b] truncate">
                           {title}
                         </h4>
-                        <p className="text-xs text-[#5c7362] line-clamp-1 leading-relaxed">
-                          {desc}
+                        <p className="text-xs text-[#2d5a37] font-medium line-clamp-1 leading-relaxed">
+                          {intro || desc}
                         </p>
                       </div>
 

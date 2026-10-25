@@ -17,6 +17,24 @@ async function startServer() {
   // API Routes (3-Tier architecture: Controllers -> Services -> Repositories)
   app.use('/api', apiRouter);
 
+  // Database offline error middleware fallback
+  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (
+      err?.name === 'MongooseError' ||
+      err?.name === 'MongoNetworkError' ||
+      err?.name === 'MongoServerSelectionError' ||
+      err?.message?.includes('buffering timed out') ||
+      err?.message?.includes('ECONNREFUSED')
+    ) {
+      console.warn('[AI Studio] Database connection notice — returning graceful fallback');
+      if (req.method === 'GET') {
+        return res.json(req.path.endsWith('s') || req.path.endsWith('s/') ? [] : {});
+      }
+      return res.status(503).json({ error: 'Service temporarily unavailable (database offline)' });
+    }
+    next(err);
+  });
+
   if (!isProduction) {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({

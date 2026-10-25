@@ -19,6 +19,7 @@ export class POIService {
 
   public createPOI(data: any): RichPOI {
     const title = data.title_vi || data.title?.vi || data.title;
+    const intro = data.intro_vi || data.introduction_vi || data.intro || data.introduction || '';
     const desc = data.desc_vi || data.description_vi || data.description?.vi || data.description || '';
 
     if (!title) {
@@ -60,7 +61,7 @@ export class POIService {
 
     return poiRepository.create(
       poiPayload,
-      { title, desc, lang: 'vi' },
+      { title, intro, desc, lang: 'vi' },
       data.image_url || data.imageUrl
     );
   }

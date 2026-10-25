@@ -298,39 +298,43 @@ export class AudioSpeechEngine {
     const voices = this.synth.getVoices();
     if (voices.length === 0) return undefined;
 
-    const preferredTags = LANG_VOICE_MAP[lang] || ['vi-VN'];
-    const langVoices = voices.filter((v) =>
-      preferredTags.some((tag) => v.lang.toLowerCase().includes(tag.toLowerCase()))
-    );
+    const preferredTags = LANG_VOICE_MAP[lang] || ['vi-VN', 'vi'];
+    const langVoices = voices.filter((v) => {
+      const vLang = v.lang.toLowerCase().replace('_', '-');
+      return preferredTags.some((tag) => vLang.startsWith(tag.toLowerCase()) || vLang.includes(tag.toLowerCase()));
+    });
 
-    if (this.selectedVoiceURI) {
-      const explicitVoice = voices.find((v) => v.voiceURI === this.selectedVoiceURI);
+    // If an explicit voice was chosen in Voice Selector, only use it if its language matches current lang!
+    if (this.selectedVoiceURI && langVoices.length > 0) {
+      const explicitVoice = langVoices.find((v) => v.voiceURI === this.selectedVoiceURI);
       if (explicitVoice) return explicitVoice;
     }
 
-    if (engineId === 'chi-google') {
-      const googleVoice = langVoices.find((v) => /google.*vi|vi.*google|google tiếng việt/i.test(v.name));
+    if (langVoices.length === 0) {
+      // Do NOT pick a voice of another language. Setting utterance.lang allows browser remote TTS.
+      return undefined;
+    }
+
+    // Engine-specific matching strictly within the target language voices
+    if (engineId === 'chi-google' || engineId === 'google-cloud') {
+      const googleVoice = langVoices.find((v) => /google|natural|neural|cloud/i.test(v.name));
       if (googleVoice) return googleVoice;
-      const genericGoogle = voices.find((v) => /google/i.test(v.name) && v.lang.startsWith('vi'));
-      if (genericGoogle) return genericGoogle;
-    } else if (engineId === 'google-cloud') {
-      const neuralVoice = langVoices.find((v) => /neural|wavenet|natural|cloud/i.test(v.name));
-      if (neuralVoice) return neuralVoice;
     } else if (engineId === 'bing') {
-      const msVoice = langVoices.find((v) => /microsoft|edge|bing|hoaimy|namminh/i.test(v.name));
+      const msVoice = langVoices.find((v) => /microsoft|edge|bing|natural|online/i.test(v.name));
       if (msVoice) return msVoice;
     } else if (engineId === 'tiktok') {
-      const upbeatVoice = langVoices.find((v) => /female|woman|linh|mai|chi/i.test(v.name));
+      const upbeatVoice = langVoices.find((v) => /female|woman|girl|mai|linh|siri|samantha/i.test(v.name));
       if (upbeatVoice) return upbeatVoice;
     }
 
-    if (langVoices.length > 0) return langVoices[0];
-    return voices[0];
+    // Default to the first native voice of the requested language
+    return langVoices[0];
   }
 
   /**
    * Main method to play POI audio narration.
-   * Completely fixes Chromium cancel bug when switching between different POIs.
+   * Assembles: [Tiêu đề] + [Giới thiệu] + [Thuyết minh chi tiết] in active language.
+   * Completely excludes bogus sample bell audio or dummy URLs.
    */
   public playNarration(
     text: string,
@@ -338,23 +342,38 @@ export class AudioSpeechEngine {
     poiTitle?: string,
     _playChime: boolean = false,
     poiId?: string,
-    audioUrl?: string
+    audioUrl?: string,
+    introText?: string
   ) {
     // 1. Fully cancel & reset previous audio / speech
     this.stopPlaybackInternal();
 
-    this.currentText = text || '';
+    // Assemble the complete spoken text: Title, Introduction, and Detailed Narration
+    const speechSegments: string[] = [];
+    if (poiTitle && poiTitle.trim()) {
+      speechSegments.push(poiTitle.trim());
+    }
+    if (introText && introText.trim() && !text.includes(introText.trim())) {
+      speechSegments.push(introText.trim());
+    }
+    if (text && text.trim()) {
+      speechSegments.push(text.trim());
+    }
+    const fullTextToRead = speechSegments.length > 0 ? speechSegments.join('. ') : (text || '');
+
+    this.currentText = fullTextToRead;
     this.currentLang = lang;
     this.currentTitle = poiTitle || '';
     this.currentPoiId = poiId;
     this.elapsedSeconds = 0;
 
-    // Check if a dedicated recorded audio URL was provided (excluding fake bell endpoint)
+    // Check if a dedicated recorded audio URL was provided (MUST be actual recorded file, NOT sample bell)
     const isDedicatedAudioUrl =
       audioUrl &&
       audioUrl.trim() !== '' &&
       !audioUrl.includes('/api/audio/bell') &&
-      /\.(mp3|wav|ogg|m4a|aac)(\?.*)?$/i.test(audioUrl);
+      !audioUrl.startsWith('data:audio') &&
+      /\.(mp3|m4a|aac)(\?.*)?$/i.test(audioUrl);
 
     if (isDedicatedAudioUrl) {
       try {
@@ -375,7 +394,7 @@ export class AudioSpeechEngine {
         audio.onerror = () => {
           console.warn('Native audio file failed, falling back to Web Speech Synthesis TTS.');
           this.currentAudioElement = null;
-          this.speakUtteranceInternal(text, lang, 0);
+          this.speakUtteranceInternal(fullTextToRead, lang, 0);
         };
         audio.play().then(() => {
           this.isSpeaking = true;
@@ -383,7 +402,7 @@ export class AudioSpeechEngine {
           this.notify();
         }).catch(() => {
           this.currentAudioElement = null;
-          this.speakUtteranceInternal(text, lang, 0);
+          this.speakUtteranceInternal(fullTextToRead, lang, 0);
         });
         return;
       } catch (e) {
@@ -392,14 +411,21 @@ export class AudioSpeechEngine {
     }
 
     // 2. Play using Web Speech Synthesis TTS
-    const words = (text || '').trim().split(/\s+/).filter(Boolean).length;
+    const words = fullTextToRead.trim().split(/\s+/).filter(Boolean).length;
     this.estimatedDuration = Math.max(12, Math.round((words / (130 * this.speechRate)) * 60));
 
-    this.speakUtteranceInternal(text, lang, 0);
+    this.speakUtteranceInternal(fullTextToRead, lang, 0);
   }
 
-  public speak(text: string, title?: string, lang: LanguageCode = 'vi', poiId?: string, audioUrl?: string) {
-    this.playNarration(text, lang, title, false, poiId, audioUrl);
+  public speak(
+    text: string,
+    title?: string,
+    lang: LanguageCode = 'vi',
+    poiId?: string,
+    audioUrl?: string,
+    introText?: string
+  ) {
+    this.playNarration(text, lang, title, false, poiId, audioUrl, introText);
   }
 
   private speakUtteranceInternal(textToSpeak: string, lang: LanguageCode, startElapsed: number = 0) {
@@ -421,13 +447,13 @@ export class AudioSpeechEngine {
       this.currentUtterance = utterance;
 
       const chosenVoice = this.pickVoiceForEngine(this.selectedEngine, lang);
-      const preferredTags = LANG_VOICE_MAP[lang] || ['vi-VN'];
+      const defaultLangTag = LANG_VOICE_MAP[lang]?.[0] || 'vi-VN';
 
       if (chosenVoice) {
         utterance.voice = chosenVoice;
         utterance.lang = chosenVoice.lang;
       } else {
-        utterance.lang = preferredTags[0];
+        utterance.lang = defaultLangTag;
       }
 
       utterance.rate = this.speechRate;
@@ -602,12 +628,21 @@ export class AudioSpeechEngine {
   }
 
   public testVoice(sampleText?: string, lang: LanguageCode = 'vi') {
-    const text =
-      sampleText ||
-      (lang === 'vi'
-        ? 'Nam Mô A Di Đà Phật. Bạn đang nghe thử giọng đọc thuyết minh tại Việt Nam Quốc Tự.'
-        : 'Welcome to Vietnam Quoc Tu Pagoda audio guide test.');
-
+    const textByLang: Record<LanguageCode, string> = {
+      vi: 'Nam Mô A Di Đà Phật. Bạn đang nghe thử giọng đọc thuyết minh tại Việt Nam Quốc Tự.',
+      en: 'Welcome to Vietnam Quoc Tu Pagoda. You are listening to the automatic audio narration.',
+      zh: '南无阿弥陀佛。欢迎来到越南国寺，您正在收听多语言自动语音导览。',
+      ja: '南無阿弥陀仏。ベトナム国寺へようこそ。音声ガイドをテストしています。',
+      ko: '나무아미타불. 베트남 국사에 오신 것을 환영합니다. 오디오 가이드를 테스트하고 있습니다.',
+      fr: 'Bienvenue à la pagode Vietnam Quoc Tu. Vous écoutez le guide audio automatique.',
+      de: 'Willkommen in der Vietnam Quoc Tu Pagode. Sie hören die automatische Audioführung.',
+      es: 'Bienvenido a la Pagoda Vietnam Quoc Tu. Está escuchando la audioguía automática.',
+      ru: 'Добро пожаловать в пагоду Вьетнам Куок Ты. Вы слушаете аудиогид.',
+      th: 'ยินดีต้อนรับสู่วัดเวียดนามกว๊อกตื่อ ท่านกำลังฟังระบบบรรยายเสียงอัตโนมัติ',
+      id: 'Selamat datang di Wihara Vietnam Quoc Tu. Anda sedang mendengarkan panduan audio otomatis.',
+      it: 'Benvenuti alla Pagoda Vietnam Quoc Tu. State ascoltando l audioguida automatica.',
+    };
+    const text = sampleText || textByLang[lang] || textByLang['vi'];
     this.playNarration(text, lang, 'Thử giọng đọc', false);
   }
 
