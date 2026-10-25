@@ -1,21 +1,19 @@
 /**
  * Sacred Buddhist Audio & Speech Synthesis Engine
- * Ultra-Resilient Monolith Audio Architecture for Mobile (iOS Safari, Android Chrome, In-App Browsers)
+ * Mobile-Hardened for iOS Safari (Apple WebKit) and Android Chrome (Blink)
  *
- * Implements 4 Core Engineering Safeguards:
- * 1. Rolling Cascade Chunking: Splits long narration into natural sub-clauses (<= 120 chars)
- *    and chains them sequentially via `utterance.onend`. Completely eliminates mobile 15-second
- *    buffer overflow and silent cutoff bugs.
- * 2. Mobile Voice Matcher & Distortion Shield:
- *    - iOS/iPadOS/macOS: Prioritizes Apple's native Vietnamese voices ("Linh", "Mai", "Enhanced", "Premium").
- *    - Android/Windows: Prioritizes "Google Tiếng Việt", "Neural", and "Microsoft Natural".
- *    - Distortion Shield: Enforces strict safety clamps on iOS (Pitch: [0.96 - 1.04], Rate: [0.90 - 1.10])
- *      to completely prevent robotic, high-pitched, or vỡ giọng distortions.
- * 3. Asynchronous Queue Stuck Reset: Employs a hardware reset loop (Queue Unstuck Loop) with silent
- *    dummy utterances to force OS audio daemons (e.g. `com.apple.speech.speechsynthesisd`) to release
- *    hung asynchronous locks.
- * 4. Autoplay Primer & Hardware Unlocker (`primeAutoplay`): Pre-authorizes the device's Audio Hardware
- *    Session on the first user gesture (touch/click), enabling background GPS geofence triggers to play.
+ * Implements:
+ * 1. Rolling Cascade Chunking: Strictly <= 90 characters per chunk (well below 100 chars)
+ *    to eliminate iOS word spelling, unnatural phonetic breaks, and the 15-second cutoff bug.
+ * 2. Distortion Shield for Apple:
+ *    - Detects iOS / iPadOS / macOS and automatically picks Apple's native Vietnamese voices
+ *      ("Linh", "Mai", "Enhanced", "Premium") without searching for "Google" / "Microsoft".
+ *    - Forces fixed pitch = 1.0 and safe rate in [0.95 - 1.05] (nominal 1.0) to completely
+ *      prevent robotic / chipmunk / vỡ giọng distortion.
+ * 3. Instant UI Synchronization:
+ *    - Emits state updates on every start, pause, resume, progress tick, chunk transition, and seek.
+ * 4. Queue Unstuck Loop:
+ *    - Clears hung OS speech synthesis daemons using dummy utterances and hardware unlockers.
  */
 
 export const templeSFX = {
@@ -52,8 +50,8 @@ export const VOICE_ENGINES: VoiceEngineOption[] = [
     id: 'chi-google',
     name: 'Chị Google / Apple Linh',
     provider: 'Google VN & Apple Native',
-    description: 'Giọng đọc chuẩn tiếng Việt, phát âm tự nhiên và truyền cảm trên mọi thiết bị.',
-    defaultRate: 0.98,
+    description: 'Giọng đọc chuẩn tiếng Việt, phát âm tự nhiên, trang nghiêm trên mọi thiết bị.',
+    defaultRate: 1.0,
     defaultPitch: 1.0,
   },
   {
@@ -61,7 +59,7 @@ export const VOICE_ENGINES: VoiceEngineOption[] = [
     name: 'Google Cloud / AI Neural',
     provider: 'AI Neural TTS Engine',
     description: 'Ngữ điệu thông minh chuẩn AI Cloud, phong thái điềm tĩnh, thanh tịnh.',
-    defaultRate: 0.98,
+    defaultRate: 1.0,
     defaultPitch: 1.0,
   },
   {
@@ -69,16 +67,16 @@ export const VOICE_ENGINES: VoiceEngineOption[] = [
     name: 'Microsoft Hoài My / Bing',
     provider: 'Microsoft Natural Edge',
     description: 'Giọng đọc mượt mà phong cách Hoài My / Nam Minh, ấm áp và rõ ràng.',
-    defaultRate: 0.96,
-    defaultPitch: 0.98,
+    defaultRate: 0.98,
+    defaultPitch: 1.0,
   },
   {
     id: 'tiktok',
     name: 'Giọng Thuyết Minh Truyền Cảm',
     provider: 'Apple Mai / Siri / Narration',
-    description: 'Giọng đọc thanh thoát, lôi cuốn, nhấn nhá câu chữ linh hoạt.',
+    description: 'Giọng đọc thanh thoát, lôi cuốn, ngắt nghỉ câu chữ linh hoạt.',
     defaultRate: 1.02,
-    defaultPitch: 1.02,
+    defaultPitch: 1.0,
   },
   {
     id: 'browser',
@@ -120,59 +118,61 @@ export interface AudioEngineState {
 }
 
 /**
- * Intelligent sentence chunking for mobile speech synthesis.
- * Breaks text into natural spoken sub-clauses (strictly <= 120 chars) around punctuation marks (. ! ? ; , - \n).
- * Completely eliminates the mobile WebKit 15-second speech buffer overflow bug.
+ * Intelligent sub-clause splitting for iOS Safari & Android mobile Web Speech API.
+ * Strict upper limit: 88 characters (guaranteed < 100 characters).
+ * Breaks sentences at natural punctuation marks (. ! ? ; , - : \n).
+ * Resolves the iOS letter spelling bug and the 15-second speech buffer timeout.
  */
-export function splitTextIntoSentences(text: string, maxLen: number = 120): string[] {
+export function splitTextIntoSentences(text: string, maxLen: number = 88): string[] {
   if (!text || !text.trim()) return [];
 
-  // Normalize whitespace and line breaks
+  // Normalize punctuation and line breaks
   const normalized = text
+    .replace(/\.{3,}/g, '. ')
+    .replace(/…/g, '. ')
     .replace(/\r\n|\r|\n/g, '. ')
     .replace(/\s+/g, ' ')
     .trim();
 
-  // Primary split by sentence boundaries (. ! ? ; or full-width equivalents)
-  const primarySentences =
+  // Primary split on sentence boundaries
+  const rawSentences =
     normalized.match(/[^.!?;\u3002\uFF01\uFF1F\uFF1B]+[.!?;\u3002\uFF01\uFF1F\uFF1B]*|[^.!?;\u3002\uFF01\uFF1F\uFF1B]+$/g) || [normalized];
-
   const chunks: string[] = [];
 
-  for (const sentence of primarySentences) {
-    const trimmed = sentence.trim();
+  for (const raw of rawSentences) {
+    const trimmed = raw.trim();
     if (!trimmed) continue;
 
     if (trimmed.length <= maxLen) {
       chunks.push(trimmed);
     } else {
-      // Secondary split by clauses (commas, colons, dashes)
-      const subClauses =
-        trimmed.match(/[^,:\uFF0C\uFF1A\-]+[,:\uFF0C\uFF1A\-]*|[^,:\uFF0C\uFF1A\-]+$/g) || [trimmed];
+      // Secondary split on commas, colons, dashes, parentheses
+      const subParts =
+        trimmed.match(/[^,:\-–—\(\)\uFF0C\uFF1A]+[,:\-–—\(\)\uFF0C\uFF1A]*|[^,:\-–—\(\)\uFF0C\uFF1A]+$/g) || [trimmed];
       let currentBuffer = '';
 
-      for (const clause of subClauses) {
-        const c = clause.trim();
-        if (!c) continue;
+      for (const part of subParts) {
+        const p = part.trim();
+        if (!p) continue;
 
-        if ((currentBuffer + ' ' + c).trim().length <= maxLen) {
-          currentBuffer = (currentBuffer ? currentBuffer + ' ' : '') + c;
+        if ((currentBuffer + ' ' + p).trim().length <= maxLen) {
+          currentBuffer = (currentBuffer ? currentBuffer + ' ' : '') + p;
         } else {
           if (currentBuffer) {
             chunks.push(currentBuffer.trim());
           }
-          if (c.length <= maxLen) {
-            currentBuffer = c;
+          if (p.length <= maxLen) {
+            currentBuffer = p;
           } else {
             // Tertiary split: break along words
-            const words = c.split(' ');
+            const words = p.split(' ');
             let wordBuffer = '';
-            for (const word of words) {
-              if ((wordBuffer + ' ' + word).trim().length <= maxLen) {
-                wordBuffer = (wordBuffer ? wordBuffer + ' ' : '') + word;
+            for (const w of words) {
+              if ((wordBuffer + ' ' + w).trim().length <= maxLen) {
+                wordBuffer = (wordBuffer ? wordBuffer + ' ' : '') + w;
               } else {
                 if (wordBuffer) chunks.push(wordBuffer.trim());
-                wordBuffer = word;
+                wordBuffer = w;
               }
             }
             currentBuffer = wordBuffer;
@@ -186,18 +186,22 @@ export function splitTextIntoSentences(text: string, maxLen: number = 120): stri
     }
   }
 
-  return chunks.length > 0 ? chunks : [normalized];
+  // Filter out empty or punctuation-only chunks
+  return chunks
+    .map((c) => c.trim())
+    .filter((c) => c.length > 0 && /[a-zA-Z0-9\u00C0-\u1EF9]/i.test(c));
 }
 
 /**
- * Detects whether the client is running on an Apple OS (iOS / iPadOS / macOS)
+ * Checks if client is running on iOS / iPadOS / macOS
  */
 export function isApplePlatform(): boolean {
   if (typeof navigator === 'undefined') return false;
   const ua = navigator.userAgent || '';
   const platform = (navigator as any).userAgentData?.platform || navigator.platform || '';
   const isIOS = /iPhone|iPad|iPod/i.test(ua);
-  const isMac = /Macintosh|MacIntel|MacPPC|Mac68K/i.test(platform) || (/Mac/i.test(ua) && (navigator.maxTouchPoints || 0) > 1);
+  const isMac =
+    /Macintosh|MacIntel|MacPPC/i.test(platform) || (/Mac/i.test(ua) && (navigator.maxTouchPoints || 0) > 1);
   return isIOS || isMac;
 }
 
@@ -209,7 +213,7 @@ export class AudioSpeechEngine {
   private isSpeaking: boolean = false;
 
   private selectedEngine: VoiceEngineId = 'chi-google';
-  private speechRate: number = 0.98;
+  private speechRate: number = 1.0;
   private speechPitch: number = 1.0;
   private selectedVoiceURI: string | null = null;
 
@@ -237,14 +241,12 @@ export class AudioSpeechEngine {
       this.loadSavedSettings();
       this.setupGlobalAutoplayListener();
 
-      // Listen for dynamic voice list availability
       if (typeof window.speechSynthesis.onvoiceschanged !== 'undefined') {
         window.speechSynthesis.onvoiceschanged = () => {
           this.getAvailableSystemVoices();
         };
       }
 
-      // Handle visibility changes cleanly
       document.addEventListener('visibilitychange', () => {
         if (!document.hidden && this.isSpeaking && !this.isPaused && this.synth) {
           if (this.synth.paused) {
@@ -257,9 +259,6 @@ export class AudioSpeechEngine {
     }
   }
 
-  /**
-   * One-time global user gesture listener to prime mobile autoplay automatically
-   */
   private setupGlobalAutoplayListener() {
     if (typeof window === 'undefined') return;
 
@@ -275,28 +274,21 @@ export class AudioSpeechEngine {
     window.addEventListener('pointerdown', onUserInteraction, { capture: true, passive: true });
   }
 
-  /**
-   * Public Autoplay Primer & Hardware Unlocker (Requirement 4)
-   * Must be called during or immediately after any user interaction (touch/click).
-   * Unlocks both Web Audio AudioContext and Web Speech API Audio Hardware Session on iOS & Android.
-   */
   public primeAutoplay(): boolean {
     if (this.isAutoplayPrimed || !this.synth) return true;
 
     try {
-      // 1. Unpause SpeechSynthesis if locked
       if (this.synth.paused) {
         this.synth.resume();
       }
 
-      // 2. Dispatch a micro silent utterance to claim the native audio session
       const silentUtterance = new SpeechSynthesisUtterance(' ');
       silentUtterance.volume = 0.001;
       silentUtterance.rate = 2.0;
       silentUtterance.pitch = 1.0;
+      silentUtterance.lang = 'vi-VN';
       this.synth.speak(silentUtterance);
 
-      // 3. Briefly unlock HTMLAudioElement / Web Audio context if available
       try {
         const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
         if (AudioCtx) {
@@ -320,10 +312,6 @@ export class AudioSpeechEngine {
     }
   }
 
-  /**
-   * Asynchronous Queue Stuck Reset (Requirement 3)
-   * Safely empties queue and breaks hardware lockup via the Queue Unstuck Loop.
-   */
   public forceResetSynthesisQueue() {
     if (!this.synth) return;
 
@@ -333,17 +321,16 @@ export class AudioSpeechEngine {
         this.chunkWatchdogTimer = null;
       }
 
-      // 1. Resume before canceling (crucial for WebKit)
       if (this.synth.paused) {
         this.synth.resume();
       }
       this.synth.cancel();
 
-      // 2. Queue Unstuck Loop: If speaking remains stuck true on mobile OS
       if (this.synth.speaking || this.synth.pending) {
         const unstuckDummy = new SpeechSynthesisUtterance('');
         unstuckDummy.volume = 0;
         unstuckDummy.rate = 2.0;
+        unstuckDummy.lang = 'vi-VN';
         this.synth.speak(unstuckDummy);
         this.synth.cancel();
       }
@@ -504,9 +491,9 @@ export class AudioSpeechEngine {
   }
 
   /**
-   * Mobile Voice Matcher (Requirement 2)
-   * Accurately recognizes Apple native voices on iOS (Linh, Mai, Enhanced, Premium)
-   * and Google voices on Android (Google Tiếng Việt, Neural, network).
+   * Mobile Voice Matcher with Apple Priority:
+   * On iOS / iPadOS / macOS, bypasses "Google" search and directly picks Apple's native
+   * Vietnamese voices ("Linh" / "Mai" / "Enhanced" / "Premium").
    */
   public pickVoiceForEngine(engineId: VoiceEngineId, lang: LanguageCode): SpeechSynthesisVoice | undefined {
     if (!this.synth) return undefined;
@@ -519,14 +506,13 @@ export class AudioSpeechEngine {
       return preferredTags.some((tag) => vLang.startsWith(tag.toLowerCase()) || vLang.includes(tag.toLowerCase()));
     });
 
-    // 1. If explicit voice was chosen by user in Voice Selector, prioritize it if language matches
+    // 1. If explicit user-selected voice matches target language
     if (this.selectedVoiceURI && langVoices.length > 0) {
       const explicitVoice = langVoices.find((v) => v.voiceURI === this.selectedVoiceURI);
       if (explicitVoice) return explicitVoice;
     }
 
     if (langVoices.length === 0) {
-      // Return undefined so browser uses remote TTS via utterance.lang
       return undefined;
     }
 
@@ -537,26 +523,36 @@ export class AudioSpeechEngine {
       /apple|linh|mai|siri/i.test(v.name) || /com\.apple\./i.test(v.voiceURI);
 
     if (lang === 'vi') {
-      // A. Apple / iOS environment
+      // RULE: If running on Apple device, ONLY pick Apple native voices
       if (isApple) {
-        // Priority 1: Apple Linh or Mai with Enhanced / Premium
-        const appleEnhanced = langVoices.find((v) => isAppleVoice(v) && isEnhancedOrPremium(v));
-        if (appleEnhanced) return appleEnhanced;
+        // Priority 1: Apple Linh (Enhanced / Premium)
+        const linhEnhanced = langVoices.find(
+          (v) => (/linh/i.test(v.name) || /linh/i.test(v.voiceURI)) && isEnhancedOrPremium(v)
+        );
+        if (linhEnhanced) return linhEnhanced;
 
-        // Priority 2: Any Apple Linh voice (the gold standard Vietnamese iOS voice)
-        const appleLinh = langVoices.find((v) => /linh/i.test(v.name) || /linh/i.test(v.voiceURI));
-        if (appleLinh) return appleLinh;
+        // Priority 2: Apple Linh Standard
+        const linh = langVoices.find((v) => /linh/i.test(v.name) || /linh/i.test(v.voiceURI));
+        if (linh) return linh;
 
-        // Priority 3: Any Apple Mai voice
-        const appleMai = langVoices.find((v) => /mai/i.test(v.name) || /mai/i.test(v.voiceURI));
-        if (appleMai) return appleMai;
+        // Priority 3: Apple Mai (Enhanced / Premium)
+        const maiEnhanced = langVoices.find(
+          (v) => (/mai/i.test(v.name) || /mai/i.test(v.voiceURI)) && isEnhancedOrPremium(v)
+        );
+        if (maiEnhanced) return maiEnhanced;
 
-        // Priority 4: Any Apple voice
+        // Priority 4: Apple Mai Standard
+        const mai = langVoices.find((v) => /mai/i.test(v.name) || /mai/i.test(v.voiceURI));
+        if (mai) return mai;
+
+        // Priority 5: Any Apple voice
         const anyApple = langVoices.find(isAppleVoice);
         if (anyApple) return anyApple;
+
+        return langVoices[0];
       }
 
-      // B. Android / Google / Windows environment
+      // Android / Chrome / Windows environment
       if (engineId === 'chi-google' || engineId === 'google-cloud') {
         const googleVoice = langVoices.find((v) => /google|vic-network|vif-network|gft-local|neural/i.test(v.name));
         if (googleVoice) return googleVoice;
@@ -574,16 +570,12 @@ export class AudioSpeechEngine {
         if (upbeat) return upbeat;
       }
 
-      // Fallbacks
       const fallbackEnhanced = langVoices.find(isEnhancedOrPremium);
       if (fallbackEnhanced) return fallbackEnhanced;
 
-      const fallbackApple = langVoices.find(isAppleVoice);
-      if (fallbackApple) return fallbackApple;
-
       return langVoices[0];
     } else {
-      // Foreign Languages
+      // Non-Vietnamese languages
       if (engineId === 'chi-google' || engineId === 'google-cloud') {
         const google = langVoices.find((v) => /google|neural|cloud/i.test(v.name));
         if (google) return google;
@@ -602,10 +594,6 @@ export class AudioSpeechEngine {
     }
   }
 
-  /**
-   * Main POI narration player.
-   * Assembles: [Tiêu đề] + [Giới thiệu] + [Thuyết minh chi tiết]
-   */
   public playNarration(
     text: string,
     lang: LanguageCode = 'vi',
@@ -615,10 +603,8 @@ export class AudioSpeechEngine {
     audioUrl?: string,
     introText?: string
   ) {
-    // 1. Reset and unblock queue
     this.stopPlaybackInternal();
 
-    // Assemble complete text string
     const speechSegments: string[] = [];
     if (poiTitle && poiTitle.trim()) {
       speechSegments.push(poiTitle.trim());
@@ -637,7 +623,6 @@ export class AudioSpeechEngine {
     this.currentPoiId = poiId;
     this.elapsedSeconds = 0;
 
-    // Check if a pre-recorded dedicated audio file is available
     const isDedicatedAudioUrl =
       audioUrl &&
       audioUrl.trim() !== '' &&
@@ -662,7 +647,6 @@ export class AudioSpeechEngine {
           this.notify();
         };
         audio.onerror = () => {
-          console.warn('Native audio file failed, falling back to Web Speech Synthesis.');
           this.currentAudioElement = null;
           this.startChunkedSpeech(fullTextToRead, lang, 0);
         };
@@ -670,20 +654,19 @@ export class AudioSpeechEngine {
           this.isSpeaking = true;
           this.isPaused = false;
           this.notify();
-        }).catch((err) => {
-          console.warn('Audio play restricted by autoplay, falling back to Web Speech:', err);
+        }).catch(() => {
           this.currentAudioElement = null;
           this.startChunkedSpeech(fullTextToRead, lang, 0);
         });
         return;
       } catch (e) {
-        console.warn('Native audio element error, falling back to Web Speech:', e);
+        console.warn('Native audio element notice:', e);
       }
     }
 
-    // 2. Rolling Cascade Web Speech Synthesis
+    // Web Speech Synthesis
     const words = fullTextToRead.trim().split(/\s+/).filter(Boolean).length;
-    this.estimatedDuration = Math.max(12, Math.round((words / (125 * this.speechRate)) * 60));
+    this.estimatedDuration = Math.max(12, Math.round((words / (120 * (this.speechRate || 1.0))) * 60));
 
     this.startChunkedSpeech(fullTextToRead, lang, 0);
   }
@@ -699,20 +682,16 @@ export class AudioSpeechEngine {
     this.playNarration(text, lang, title, false, poiId, audioUrl, introText);
   }
 
-  /**
-   * Rolling Cascade Chunking: Starts the sequential sentence-level speech queue (Requirement 1)
-   */
   private startChunkedSpeech(fullText: string, lang: LanguageCode, startElapsed: number = 0) {
     if (!this.synth) {
       console.warn('SpeechSynthesis is not supported on this browser.');
       return;
     }
 
-    // Ensure mobile audio session is primed
     this.primeAutoplay();
 
-    // Split text into sub-clauses strictly <= 120 chars
-    this.textChunks = splitTextIntoSentences(fullText, 120);
+    // Strict sub-clause chunking: <= 88 characters (well under 100)
+    this.textChunks = splitTextIntoSentences(fullText, 88);
     this.currentChunkIndex = 0;
     this.sessionToken++;
     const currentSession = this.sessionToken;
@@ -720,22 +699,17 @@ export class AudioSpeechEngine {
     this.elapsedSeconds = startElapsed;
     this.isSpeaking = true;
     this.isPaused = false;
-    this.startTimer();
     this.notify();
+    this.startTimer();
 
-    // Launch cascade
     this.playNextChunk(currentSession);
   }
 
-  /**
-   * Chains next sentence chunk using `onend` and `onerror`
-   */
   private playNextChunk(expectedSession: number) {
     if (this.sessionToken !== expectedSession || !this.synth) {
       return;
     }
 
-    // All chunks finished
     if (this.currentChunkIndex >= this.textChunks.length) {
       this.cleanup();
       this.notify();
@@ -754,7 +728,6 @@ export class AudioSpeechEngine {
       this.chunkWatchdogTimer = null;
     }
 
-    // Clear prior utterance cleanly
     try {
       if (this.synth.paused) {
         this.synth.resume();
@@ -775,13 +748,14 @@ export class AudioSpeechEngine {
       utterance.lang = defaultLangTag;
     }
 
-    // DISTORTION SHIELD FOR APPLE / iOS (Requirement 2):
-    // Apple voices (Linh/Mai) distort heavily if pitch != 1.0 or rate is too fast.
-    const isApple = isApplePlatform() || (chosenVoice && /apple|linh|mai|siri/i.test(chosenVoice.name));
+    // DISTORTION SHIELD FOR APPLE (iOS/iPadOS/macOS):
+    // Force pitch = 1.0 and clamp rate to [0.95 - 1.05] (nominal 1.0)
+    const isApple =
+      isApplePlatform() || (chosenVoice && /apple|linh|mai|siri/i.test(chosenVoice.name + ' ' + chosenVoice.voiceURI));
     const safePitch = isApple ? 1.0 : Math.max(0.85, Math.min(1.25, this.speechPitch));
     const safeRate = isApple
-      ? Math.max(0.90, Math.min(1.10, this.speechRate))
-      : Math.max(0.75, Math.min(1.35, this.speechRate));
+      ? Math.max(0.95, Math.min(1.05, this.speechRate || 1.0))
+      : Math.max(0.8, Math.min(1.3, this.speechRate || 1.0));
 
     utterance.rate = safeRate;
     utterance.pitch = safePitch;
@@ -799,9 +773,16 @@ export class AudioSpeechEngine {
         clearTimeout(this.chunkWatchdogTimer);
         this.chunkWatchdogTimer = null;
       }
-      // Advance to next sentence chunk
+
       this.currentChunkIndex++;
-      // Brief 35ms pause between sentences for authentic human breathing rhythm
+
+      // Recalculate progress time accurately on chunk completion
+      if (this.textChunks.length > 0) {
+        const ratio = this.currentChunkIndex / this.textChunks.length;
+        this.elapsedSeconds = Math.min(this.estimatedDuration, Math.round(ratio * this.estimatedDuration));
+      }
+      this.notify();
+
       setTimeout(() => {
         this.playNextChunk(expectedSession);
       }, 35);
@@ -819,37 +800,36 @@ export class AudioSpeechEngine {
         this.chunkWatchdogTimer = null;
       }
 
-      // Safely advance to next chunk so a single bad symbol doesn't freeze the whole narration
       this.currentChunkIndex++;
+      this.notify();
+
       setTimeout(() => {
         this.playNextChunk(expectedSession);
-      }, 50);
+      }, 45);
     };
 
-    // Mobile Watchdog: If a chunk is silenced without firing onend/onerror, auto-unblock
     const wordsInChunk = chunkText.split(/\s+/).length;
-    const expectedDurationMs = Math.max(4500, (wordsInChunk / 2.0) * (1 / safeRate) * 1000);
+    const expectedDurationMs = Math.max(3500, (wordsInChunk / 2.0) * (1 / safeRate) * 1000);
     this.chunkWatchdogTimer = setTimeout(() => {
       if (this.sessionToken === expectedSession && this.isSpeaking && !this.isPaused) {
-        console.warn('[AudioSpeechEngine] Chunk watchdog unblocking queue.');
+        console.warn('[AudioSpeechEngine] Chunk watchdog auto-advancing.');
         this.forceResetSynthesisQueue();
         this.currentChunkIndex++;
+        this.notify();
         this.playNextChunk(expectedSession);
       }
-    }, expectedDurationMs + 3500);
+    }, expectedDurationMs + 3000);
 
     try {
       this.synth.speak(utterance);
     } catch (err) {
-      console.warn('SpeechSynthesis speak call failed:', err);
+      console.warn('SpeechSynthesis speak failed:', err);
       this.currentChunkIndex++;
+      this.notify();
       this.playNextChunk(expectedSession);
     }
   }
 
-  /**
-   * Scrubbing: maps target second to corresponding sentence chunk
-   */
   public seekTo(targetSeconds: number) {
     const clamped = Math.max(0, Math.min(this.estimatedDuration, Math.round(targetSeconds)));
     this.elapsedSeconds = clamped;
@@ -873,7 +853,10 @@ export class AudioSpeechEngine {
     }
 
     const ratio = this.estimatedDuration > 0 ? clamped / this.estimatedDuration : 0;
-    const targetChunk = Math.min(this.textChunks.length - 1, Math.floor(ratio * this.textChunks.length));
+    const targetChunk = Math.min(
+      Math.max(0, this.textChunks.length - 1),
+      Math.floor(ratio * this.textChunks.length)
+    );
 
     this.stopPlaybackInternal();
     this.sessionToken++;
@@ -882,8 +865,8 @@ export class AudioSpeechEngine {
     this.currentChunkIndex = targetChunk;
     this.isSpeaking = true;
     this.isPaused = false;
-    this.startTimer();
     this.notify();
+    this.startTimer();
 
     this.playNextChunk(currentSession);
   }
@@ -934,7 +917,6 @@ export class AudioSpeechEngine {
       this.startTimer();
       this.notify();
 
-      // Safari recovery check: if resume didn't trigger audio, replay current chunk
       setTimeout(() => {
         if (this.isSpeaking && !this.synth?.speaking) {
           const currentSession = ++this.sessionToken;
@@ -992,10 +974,7 @@ export class AudioSpeechEngine {
     this.stopTimer();
     this.progressTimer = setInterval(() => {
       if (!this.isPaused && this.isSpeaking) {
-        this.elapsedSeconds += 1;
-        if (this.elapsedSeconds > this.estimatedDuration) {
-          this.elapsedSeconds = this.estimatedDuration;
-        }
+        this.elapsedSeconds = Math.min(this.estimatedDuration, this.elapsedSeconds + 1);
         this.notify();
       }
     }, 1000);
