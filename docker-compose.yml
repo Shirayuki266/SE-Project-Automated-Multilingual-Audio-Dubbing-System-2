@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  vietnam-quoc-tu-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: vnqt-audio-guide:latest
+    container_name: vnqt-audio-guide
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.2'
+          memory: 128M

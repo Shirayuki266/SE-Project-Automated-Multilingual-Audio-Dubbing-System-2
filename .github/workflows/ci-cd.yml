@@ -1,0 +1,75 @@
+name: CI/CD Pipeline - Vietnam Quoc Tu Free Audio Guide
+
+# ==============================================================================
+# ☸️ DỰ ÁN VĂN HÓA PHẬT GIÁO PHI LỢI NHUẬN - VIỆT NAM QUỐC TỰ
+#    Mục đích: Thuyết minh & Hướng dẫn Chiêm bái Miễn Phí (Không Thu Tiền)
+#    Trang bị: Tự động kiểm thử, Lint, Đóng gói Container, Kiểm tra Triển khai
+# ==============================================================================
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+
+jobs:
+  test-and-lint:
+    name: 🧪 Automated Testing & Linting
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Run Typecheck & Linter
+        run: npm run lint
+
+      - name: Execute Backend & Spatial Geofence Tests
+        run: npm test
+
+      - name: Build Frontend & Production Bundle
+        run: npm run build
+
+  docker-build:
+    name: 🐳 Docker Multi-Stage Build
+    needs: test-and-lint
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: actions/setup-buildx-action@v3
+
+      - name: Build Container Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false
+          tags: vnqt-audio-guide:latest,vnqt-audio-guide:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  verify-deployment:
+    name: 🚀 Production Verification (Non-Profit Free Service)
+    needs: docker-build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Execute Deployment Verification Script
+        run: |
+          chmod +x ./scripts/deploy.sh
+          ./scripts/deploy.sh --health-check-endpoint "http://localhost:3000/api/health" --max-retries 3
