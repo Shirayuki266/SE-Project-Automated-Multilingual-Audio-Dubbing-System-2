@@ -180,6 +180,24 @@ export default function App() {
     fetchDefaultVoice();
   }, []);
 
+  // One-time User Gesture Autoplay Primer: unlocks mobile audio hardware session on first touch/click
+  useEffect(() => {
+    const unlockAudio = () => {
+      speechEngine.primeAutoplay();
+      window.removeEventListener('click', unlockAudio);
+      window.removeEventListener('touchstart', unlockAudio);
+      window.removeEventListener('pointerdown', unlockAudio);
+    };
+    window.addEventListener('click', unlockAudio, { passive: true });
+    window.addEventListener('touchstart', unlockAudio, { passive: true });
+    window.addEventListener('pointerdown', unlockAudio, { passive: true });
+    return () => {
+      window.removeEventListener('click', unlockAudio);
+      window.removeEventListener('touchstart', unlockAudio);
+      window.removeEventListener('pointerdown', unlockAudio);
+    };
+  }, []);
+
   // Audio Engine State Listener
   useEffect(() => {
     speechEngine.setOnStateChange((state) => {

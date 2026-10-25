@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Sparkles, MapPin, Compass, Volume2, ShieldCheck, Heart } from 'lucide-react';
-import { LanguageCode } from '../utils/audioSpeech.js';
+import { LanguageCode, speechEngine } from '../utils/audioSpeech.js';
 import { translations } from '../translations/index.js';
 import { getBrowserFingerprint } from '../utils/fingerprint.js';
 
@@ -19,6 +19,8 @@ export const WelcomeModal: React.FC<WelcomeModalProps> = ({
   const t = translations[currentLang];
 
   const handleStart = async () => {
+    // Prime and pre-authorize Mobile Audio Hardware Session on explicit user gesture
+    speechEngine.primeAutoplay();
     setIsSubmitting(true);
     try {
       const fingerprintHash = await getBrowserFingerprint();
