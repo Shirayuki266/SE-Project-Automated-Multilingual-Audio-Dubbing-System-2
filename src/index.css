@@ -1,0 +1,39 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    font-family: 'Be Vietnam Pro', system-ui, -apple-system, sans-serif;
+    background-color: #f7f9f6;
+    color: #19231b;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+.font-serif {
+  font-family: 'Playfair Display', Georgia, serif;
+}
+
+/* Custom smooth scrollbar */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Custom Leaflet overrides for clean modern theme */
+.leaflet-container {
+  font-family: 'Be Vietnam Pro', system-ui, sans-serif !important;
+}
+
+.custom-poi-marker {
+  background: transparent !important;
+  border: none !important;
+}
+
+.custom-user-marker {
+  background: transparent !important;
+  border: none !important;
+}

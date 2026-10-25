@@ -1,0 +1,6 @@
+{
+  "name": "Thuyết Minh Tự Động Việt Nam Quốc Tự",
+  "description": "Hệ thống thuyết minh tự động đa ngôn ngữ, định vị GPS khuôn viên và quản trị điểm chiêm bái Việt Nam Quốc Tự.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
