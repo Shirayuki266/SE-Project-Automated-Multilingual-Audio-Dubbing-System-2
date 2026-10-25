@@ -4,7 +4,7 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm ci
+RUN npm install --legacy-peer-deps
 
 COPY . .
 RUN npm run build
@@ -21,7 +21,7 @@ ENV PORT=3000
 RUN apk add --no-cache curl
 
 COPY package*.json ./
-RUN npm ci --omit=dev && npm install -g tsx
+RUN npm install --omit=dev --legacy-peer-deps && npm install -g tsx
 
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/src/server ./src/server
