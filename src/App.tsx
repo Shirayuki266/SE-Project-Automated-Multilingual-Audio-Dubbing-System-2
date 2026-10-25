@@ -384,12 +384,23 @@ export default function App() {
 
       {/* Main Viewport Container */}
       <main className="flex-1 max-w-4xl w-full mx-auto px-4 sm:px-6 pt-3 pb-36 space-y-5">
-        {/* Geofence Detection Toast Notification */}
+        {/* Geofence Detection Toast Notification with Touch-to-Play User Gesture */}
         {geofenceToast && (
-          <div className="fixed top-14 left-1/2 -translate-x-1/2 z-50 bg-[#2d5a37] text-white px-5 py-2.5 rounded-full shadow-xl flex items-center gap-2.5 border border-[#3e724a] animate-bounce text-xs sm:text-sm">
-            <Sparkles className="w-4 h-4 text-yellow-300" />
-            <span>
+          <div
+            onClick={() => {
+              handlePlayPOI(geofenceToast.poi, currentLang);
+              setGeofenceToast(null);
+            }}
+            className="fixed top-14 left-1/2 -translate-x-1/2 z-50 bg-[#2d5a37] hover:bg-[#23462b] text-white px-4 py-2.5 rounded-full shadow-2xl flex items-center gap-2 border border-[#488255] animate-bounce text-xs sm:text-sm cursor-pointer active:scale-95 transition-all max-w-[92vw]"
+            title="Chạm vào đây để nghe thuyết minh ngay"
+          >
+            <Sparkles className="w-4 h-4 text-yellow-300 flex-shrink-0" />
+            <span className="truncate">
               {t.poiTriggered}: {geofenceToast.poi.translations[currentLang]?.title || geofenceToast.poi.code} ({geofenceToast.distance}m)
+            </span>
+            <span className="flex items-center gap-1 bg-white/20 hover:bg-white/30 text-white font-bold text-[11px] px-2.5 py-0.5 rounded-full flex-shrink-0 ml-1">
+              <Volume2 className="w-3.5 h-3.5" />
+              <span>Chạm để nghe</span>
             </span>
           </div>
         )}
