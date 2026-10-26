@@ -1,5 +1,5 @@
 import { MongoClient, Db, Collection } from 'mongodb';
-import { Campus, POIEntity, POITranslation, POIMedia, AdminUser, PilgrimageLog } from '../types.js';
+import { Campus, POIEntity, POITranslation, POIMedia, AdminUser } from '../types.js';
 
 const mongoUri = process.env.MONGODB_URI;
 const dbName = process.env.MONGODB_DB_NAME || 'vietnam_quoc_tu';
@@ -36,7 +36,11 @@ export class MongoDatabaseManager {
       await this.db.collection('pois').createIndex({ code: 1 }, { unique: true });
       await this.db.collection('poi_translations').createIndex({ poi_id: 1, language_code: 1 }, { unique: true });
 
-      console.log(`[MongoDB] Successfully connected to remote MongoDB database: "${dbName}" with 2dsphere spatial index.`);
+      // Ensure Real Devices Index (Thiết bị đăng nhập/truy cập thực - không tạo ảo)
+      await this.db.collection('real_devices').createIndex({ device_id: 1 }, { unique: true });
+      await this.db.collection('real_devices').createIndex({ last_seen_at: -1 });
+
+      console.log(`[MongoDB] Successfully connected to remote MongoDB database: "${dbName}" with 2dsphere spatial index & real_devices collection.`);
     } catch (err: any) {
       console.warn(`[MongoDB] Remote cluster connection notice (${err.message}). Seamlessly using embedded MongoDB-compatible document store.`);
       this.isConnectedToRemote = false;
@@ -59,7 +63,7 @@ export class MongoDatabaseManager {
     geoIndexActive: boolean;
     collections: string[];
   }> {
-    const standardCollections = ['campuses', 'pois', 'poi_translations', 'poi_media', 'admin_users', 'pilgrimage_logs'];
+    const standardCollections = ['campuses', 'pois', 'poi_translations', 'poi_media', 'admin_users', 'real_devices'];
 
     if (!this.client || !this.db) {
       return {

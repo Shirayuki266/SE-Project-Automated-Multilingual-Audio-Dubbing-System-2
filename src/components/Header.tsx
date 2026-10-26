@@ -11,6 +11,7 @@ import {
   Mic,
   VolumeX,
   Lock,
+  Shield,
   X,
   BookOpen,
 } from 'lucide-react';
@@ -225,10 +226,11 @@ export const Header: React.FC<HeaderProps> = ({
           {/* Direct Admin Entrance Button in Header */}
           <button
             onClick={onOpenAdmin}
-            className="w-8 h-8 rounded-full bg-white border border-[#e2eae4] hover:bg-amber-50 hover:border-amber-400 text-stone-600 hover:text-amber-800 flex items-center justify-center transition-colors shadow-xs"
-            title="Đăng nhập Cổng Quản Trị Hệ Thống (Admin)"
+            className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-full bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-900 text-xs font-bold transition-all shadow-2xs hover:shadow-xs active:scale-95 cursor-pointer"
+            title="Đăng nhập Cổng Quản Trị Hệ Thống (Admin Portal)"
           >
-            <Lock className="w-3.5 h-3.5" />
+            <Shield className="w-3.5 h-3.5 text-amber-700" />
+            <span>Quản Trị</span>
           </button>
         </div>
       </div>

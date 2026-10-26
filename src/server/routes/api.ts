@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { poiController } from '../controllers/poiController.js';
 import { analyticsController } from '../controllers/analyticsController.js';
 import { authController } from '../controllers/authController.js';
+import { realDeviceController } from '../controllers/realDeviceController.js';
 
 const router = Router();
 
@@ -15,7 +16,7 @@ router.get('/health', (_req, res) => {
     layers: ['presentation-controllers', 'service-domain', 'repository-mongodb-store'],
     database: {
       engine: 'MongoDB (BSON Document Store)',
-      collections: ['campuses', 'pois', 'poi_translations', 'poi_media', 'admin_users', 'pilgrimage_logs'],
+      collections: ['campuses', 'pois', 'poi_translations', 'poi_media', 'admin_users', 'real_devices'],
       geoSpatialIndex: '2dsphere (GeoJSON Point)',
     },
   });
@@ -64,7 +65,7 @@ router.get('/mongodb/status', async (_req, res) => {
     data: {
       ...health,
       geoSpatialIndex: '2dsphere (GeoJSON Point: [longitude, latitude])',
-      collections: ['campuses', 'pois', 'poi_translations', 'poi_media', 'admin_users', 'pilgrimage_logs'],
+      collections: ['campuses', 'pois', 'poi_translations', 'poi_media', 'admin_users', 'real_devices'],
     },
   });
 });
@@ -107,9 +108,21 @@ router.post('/settings/default-voice', (req, res) => {
   }
 });
 
-// Analytics routes
+// Device Fingerprint & Analytics routes (Strict Daily 1-Device Deduplication)
+router.post('/analytics/device-checkin', (req, res) => analyticsController.checkinDevice(req, res));
+router.get('/analytics/device-status', (req, res) => analyticsController.getDeviceStatus(req, res));
+router.get('/analytics/visitors', (req, res) => analyticsController.getVisitors(req, res));
 router.post('/analytics/pilgrimage-start', (req, res) => analyticsController.startPilgrimage(req, res));
 router.get('/analytics/stats', (req, res) => analyticsController.getStats(req, res));
 
+// =========================================================================
+// BẢNG MONGODB: QUẢN LÝ THIẾT BỊ ĐĂNG NHẬP / TRUY CẬP THỰC (KHÔNG TẠO ẢO)
+// =========================================================================
+router.post('/real-devices/checkin', (req, res) => realDeviceController.checkin(req, res));
+router.get('/real-devices', (req, res) => realDeviceController.getRealDevices(req, res));
+router.put('/real-devices/:id/block', (req, res) => realDeviceController.toggleBlock(req, res));
+router.delete('/real-devices/:id', (req, res) => realDeviceController.deleteDevice(req, res));
+
 export default router;
+
 

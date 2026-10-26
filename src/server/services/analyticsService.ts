@@ -1,10 +1,27 @@
 import { analyticsRepository } from '../repositories/analyticsRepository.js';
-import { PilgrimageStats } from '../types.js';
+import { PilgrimageStats, DeviceCheckinResult } from '../types.js';
 
 // Recent taps cache for throttling repeated clicks within 30 seconds
 const recentTaps = new Map<string, number>();
 
 export class AnalyticsService {
+  public checkinDevice(
+    fingerprintHash: string,
+    language: string = 'vi',
+    userAgent?: string,
+    ipAddress?: string
+  ): DeviceCheckinResult {
+    if (!fingerprintHash || fingerprintHash.length < 8) {
+      throw new Error('Dấu vân tay thiết bị không hợp lệ.');
+    }
+    return analyticsRepository.checkinDevice(fingerprintHash, language, userAgent, ipAddress);
+  }
+
+  public getDeviceStatus(fingerprintHash: string) {
+    if (!fingerprintHash) return { hasCheckedInToday: false };
+    return analyticsRepository.getDeviceStatusToday(fingerprintHash);
+  }
+
   public registerPilgrimageStart(
     fingerprintHash: string,
     language: string,
@@ -51,6 +68,10 @@ export class AnalyticsService {
         ? 'Chào mừng quý Phật tử đã bắt đầu chuyến chiêm bái hôm nay.'
         : 'Chào mừng quý Phật tử quay lại hành trình chiêm bái.',
     };
+  }
+
+  public getVisitorAnalytics(filter: any) {
+    return analyticsRepository.getVisitorAnalytics(filter);
   }
 
   public getDashboardStats(): PilgrimageStats {

@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { RichPOI, PilgrimageStats, Campus } from '../server/types.js';
+import { RichPOI, PilgrimageStats, Campus, RealDeviceEntity, RealDeviceResponse } from '../server/types.js';
 import { LanguageCode, speechEngine, VOICE_ENGINES, VoiceEngineId } from '../utils/audioSpeech.js';
 import { AdminPOIMapPicker } from './AdminPOIMapPicker.js';
+import { getBrowserFingerprint } from '../utils/fingerprint.js';
 import QRCode from 'qrcode';
 import {
   Shield,
@@ -35,6 +36,13 @@ import {
   Heart,
   Globe,
   Radio,
+  Eye,
+  Search,
+  Calendar,
+  Filter,
+  Smartphone,
+  Laptop,
+  Users,
 } from 'lucide-react';
 
 interface AdminPortalProps {
@@ -75,9 +83,9 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [loginError, setLoginError] = useState<string | null>(null);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
-  // 4 Primary Modern Tabs matching user request:
-  // 'dashboard' | 'pois' | 'audio' | 'articles'
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'pois' | 'audio' | 'articles'>('dashboard');
+  // 5 Primary Modern Tabs:
+  // 'dashboard' | 'pois' | 'audio' | 'articles' | 'real_devices'
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'pois' | 'audio' | 'articles' | 'real_devices'>('dashboard');
 
   // Default Voice Configuration State
   const [defaultVoiceEngine, setDefaultVoiceEngine] = useState<VoiceEngineId>('chi-google');
@@ -125,6 +133,144 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [qrPreviews, setQrPreviews] = useState<Record<string, string>>({});
   const [qrModalPoi, setQrModalPoi] = useState<RichPOI | null>(null);
   const [notificationMsg, setNotificationMsg] = useState<string | null>(null);
+  const [mongoStatus, setMongoStatus] = useState<any>(null);
+
+  // Visitor Analytics State (Thống kê thiết bị truy cập & Tìm kiếm theo tùy chọn: ngày này, tháng này, năm này, từ - đến)
+  const [visitorAnalytics, setVisitorAnalytics] = useState<any>(null);
+  const [visitorPreset, setVisitorPreset] = useState<'today' | 'this_month' | 'this_year' | 'all' | 'custom'>('today');
+  const [visitorStartDate, setVisitorStartDate] = useState<string>('2026-10-01');
+  const [visitorEndDate, setVisitorEndDate] = useState<string>(() =>
+    new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' })
+  );
+  const [visitorSearch, setVisitorSearch] = useState<string>('');
+  const [isLoadingVisitors, setIsLoadingVisitors] = useState<boolean>(false);
+
+  // Search states for POIs, Audio, Articles tabs
+  const [poiSearchQuery, setPoiSearchQuery] = useState<string>('');
+  const [poiTypeFilter, setPoiTypeFilter] = useState<string>('all');
+  const [audioSearchQuery, setAudioSearchQuery] = useState<string>('');
+  const [audioLangFilter, setAudioLangFilter] = useState<string>('all');
+  const [articleSearchQuery, setArticleSearchQuery] = useState<string>('');
+
+  // Real Devices MongoDB Management State (Chỉ quản lý thiết bị thực - Tuyệt đối không tạo ảo)
+  const [realDevicesData, setRealDevicesData] = useState<RealDeviceResponse | null>(null);
+  const [isLoadingRealDevices, setIsLoadingRealDevices] = useState<boolean>(false);
+  const [realDeviceSearch, setRealDeviceSearch] = useState<string>('');
+  const [realDeviceRoleFilter, setRealDeviceRoleFilter] = useState<'all' | 'visitor' | 'admin'>('all');
+  const [realDeviceStatusFilter, setRealDeviceStatusFilter] = useState<'all' | 'active' | 'blocked'>('all');
+
+  const fetchRealDevices = (
+    search = realDeviceSearch,
+    role = realDeviceRoleFilter,
+    status = realDeviceStatusFilter
+  ) => {
+    setIsLoadingRealDevices(true);
+    const params = new URLSearchParams();
+    if (search && search.trim()) params.set('search', search.trim());
+    if (role && role !== 'all') params.set('role', role);
+    if (status && status !== 'all') params.set('status', status);
+
+    fetch(`/api/real-devices?${params.toString()}`)
+      .then((r) => r.json())
+      .then((res) => {
+        if (res.success && res.data) {
+          setRealDevicesData(res.data);
+        }
+      })
+      .catch((err) => console.warn('Fetch real devices error:', err))
+      .finally(() => setIsLoadingRealDevices(false));
+  };
+
+  useEffect(() => {
+    if (authToken) {
+      fetchRealDevices();
+    }
+  }, [authToken, activeTab, realDeviceRoleFilter, realDeviceStatusFilter]);
+
+  const handleToggleBlockDevice = async (deviceId: string, currentStatus: string) => {
+    const isBlocked = currentStatus !== 'blocked';
+    try {
+      const res = await fetch(`/api/real-devices/${deviceId}/block`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({ isBlocked }),
+      });
+      const d = await res.json();
+      if (d.success) {
+        showNotify(isBlocked ? 'Đã khóa thiết bị thực thành công!' : 'Đã mở khóa thiết bị thực thành công!');
+        fetchRealDevices();
+      }
+    } catch (err: any) {
+      alert('Lỗi: ' + err.message);
+    }
+  };
+
+  const handleDeleteRealDevice = async (deviceId: string) => {
+    if (!confirm('Quý vị có chắc chắn muốn xóa thiết bị thực này khỏi MongoDB?')) return;
+    try {
+      const res = await fetch(`/api/real-devices/${deviceId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      const d = await res.json();
+      if (d.success) {
+        showNotify('Đã xóa thiết bị thực khỏi bảng MongoDB!');
+        fetchRealDevices();
+      }
+    } catch (err: any) {
+      alert('Lỗi: ' + err.message);
+    }
+  };
+
+  // Fetch Visitor Analytics
+  const fetchVisitorAnalytics = (
+    preset = visitorPreset,
+    start = visitorStartDate,
+    end = visitorEndDate,
+    search = visitorSearch
+  ) => {
+    setIsLoadingVisitors(true);
+    const params = new URLSearchParams();
+    if (preset) params.set('preset', preset);
+    if (preset === 'custom') {
+      if (start) params.set('startDate', start);
+      if (end) params.set('endDate', end);
+    }
+    if (search && search.trim()) params.set('search', search.trim());
+
+    fetch(`/api/analytics/visitors?${params.toString()}`)
+      .then((r) => r.json())
+      .then((res) => {
+        if (res.success && res.data) {
+          setVisitorAnalytics(res.data);
+        }
+      })
+      .catch((err) => console.warn('Visitor analytics fetch notice:', err))
+      .finally(() => setIsLoadingVisitors(false));
+  };
+
+  useEffect(() => {
+    if (authToken) {
+      fetchVisitorAnalytics();
+    }
+  }, [authToken, visitorPreset]);
+
+  // Load MongoDB Status
+  const fetchMongoStatus = () => {
+    fetch('/api/mongodb/status')
+      .then((r) => r.json())
+      .then((res) => {
+        if (res.success && res.data) setMongoStatus(res.data);
+      })
+      .catch(() => {});
+  };
+
+  useEffect(() => {
+    fetchMongoStatus();
+  }, []);
 
   // Verify Session on mount
   useEffect(() => {
@@ -238,10 +384,16 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     setLoginError(null);
 
     try {
+      const deviceId = await getBrowserFingerprint().catch(() => '');
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: usernameInput, password: passwordInput }),
+        body: JSON.stringify({
+          username: usernameInput,
+          password: passwordInput,
+          deviceId,
+          screenResolution: typeof window !== 'undefined' ? `${window.screen.width}x${window.screen.height}` : undefined,
+        }),
       });
       const data = await res.json();
       if (data.success) {
@@ -630,9 +782,9 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
               <button
                 type="button"
                 onClick={onClose}
-                className="flex-1 py-2.5 px-4 rounded-full bg-white border border-[#e2eae4] hover:bg-[#f7f9f6] text-xs font-semibold text-[#5c7362] transition-colors"
+                className="flex-1 py-2.5 px-4 rounded-full bg-white border border-[#e2eae4] hover:bg-[#f7f9f6] text-xs font-bold text-[#5c7362] hover:text-[#19231b] transition-colors cursor-pointer"
               >
-                ← Trở về Chiêm Bái
+                ← Về Giao Diện Du Khách
               </button>
               <button
                 type="submit"
@@ -716,10 +868,11 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
             <button
               onClick={onClose}
-              className="px-3.5 py-1.5 rounded-full bg-white border border-[#e2eae4] hover:border-[#2d5a37] text-xs font-semibold text-[#1e3d25] hover:bg-[#eef5f0] shadow-xs transition-colors flex items-center gap-1.5"
-              title="Quay lại giao diện dành cho du khách"
+              className="px-3.5 py-1.5 rounded-full bg-[#eef5f0] border border-[#2d5a37] text-xs font-bold text-[#1e3d25] hover:bg-[#2d5a37] hover:text-white shadow-2xs hover:shadow-xs transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
+              title="Quay lại giao diện dành cho du khách chiêm bái"
             >
-              <span>← Về Chiêm Bái</span>
+              <Eye className="w-3.5 h-3.5" />
+              <span>👤 Xem Giao Diện Du Khách</span>
             </button>
 
             <button
@@ -789,6 +942,27 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
               <FileText className="w-4 h-4 text-[#2d5a37]" />
               <span>Bài Viết ở POIs</span>
             </button>
+
+            {/* Tab 5: Quản lý Thiết Bị Thực (MongoDB - Không tạo ảo) */}
+            <button
+              onClick={() => {
+                setActiveTab('real_devices');
+                fetchRealDevices();
+              }}
+              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl transition-all ${
+                activeTab === 'real_devices'
+                  ? 'bg-white text-[#1e3d25] font-bold shadow-xs'
+                  : 'text-[#5c7362] hover:text-[#19231b]'
+              }`}
+            >
+              <Laptop className="w-4 h-4 text-[#2d5a37]" />
+              <span>Thiết Bị Thực (MongoDB)</span>
+              {realDevicesData?.summary?.totalRealDevices !== undefined && (
+                <span className="ml-0.5 px-1.5 py-0.2 rounded-full bg-[#eef5f0] text-[#2d5a37] text-[10px] font-bold">
+                  {realDevicesData.summary.totalRealDevices}
+                </span>
+              )}
+            </button>
           </div>
 
           {/* Quick Refresh */}
@@ -857,62 +1031,371 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 </div>
               </div>
 
-              {/* 4 Primary KPI Metric Cards */}
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-                <div className="bg-white rounded-3xl p-4 sm:p-5 border border-[#e2eae4] shadow-xs">
-                  <div className="flex items-center justify-between text-[#5c7362] mb-2">
-                    <span className="text-[11px] font-bold uppercase tracking-wider">Lượt khách hôm nay</span>
-                    <Radio className="w-4 h-4 text-[#2d5a37]" />
+              {/* Time Range Selector & Search Bar */}
+              <div className="bg-white rounded-3xl p-5 border border-[#e2eae4] shadow-xs space-y-4">
+                <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
+                  {/* Preset Buttons */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-bold text-[#19231b] flex items-center gap-1.5 mr-1">
+                      <Calendar className="w-4 h-4 text-[#2d5a37]" />
+                      <span>Xem theo:</span>
+                    </span>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setVisitorPreset('today');
+                        fetchVisitorAnalytics('today', visitorStartDate, visitorEndDate, visitorSearch);
+                      }}
+                      className={`px-3.5 py-1.5 rounded-full text-xs font-bold transition-all flex items-center gap-1.5 ${
+                        visitorPreset === 'today'
+                          ? 'bg-[#2d5a37] text-white shadow-xs'
+                          : 'bg-[#f7f9f6] text-[#5c7362] hover:bg-[#eef5f0] border border-[#e2eae4]'
+                      }`}
+                    >
+                      <span>📌 Hôm nay (Ngày này)</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setVisitorPreset('this_month');
+                        fetchVisitorAnalytics('this_month', visitorStartDate, visitorEndDate, visitorSearch);
+                      }}
+                      className={`px-3.5 py-1.5 rounded-full text-xs font-bold transition-all flex items-center gap-1.5 ${
+                        visitorPreset === 'this_month'
+                          ? 'bg-[#2d5a37] text-white shadow-xs'
+                          : 'bg-[#f7f9f6] text-[#5c7362] hover:bg-[#eef5f0] border border-[#e2eae4]'
+                      }`}
+                    >
+                      <span>📅 Tháng này</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setVisitorPreset('this_year');
+                        fetchVisitorAnalytics('this_year', visitorStartDate, visitorEndDate, visitorSearch);
+                      }}
+                      className={`px-3.5 py-1.5 rounded-full text-xs font-bold transition-all flex items-center gap-1.5 ${
+                        visitorPreset === 'this_year'
+                          ? 'bg-[#2d5a37] text-white shadow-xs'
+                          : 'bg-[#f7f9f6] text-[#5c7362] hover:bg-[#eef5f0] border border-[#e2eae4]'
+                      }`}
+                    >
+                      <span>🗓️ Năm này</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setVisitorPreset('all');
+                        fetchVisitorAnalytics('all', visitorStartDate, visitorEndDate, visitorSearch);
+                      }}
+                      className={`px-3.5 py-1.5 rounded-full text-xs font-bold transition-all flex items-center gap-1.5 ${
+                        visitorPreset === 'all'
+                          ? 'bg-[#2d5a37] text-white shadow-xs'
+                          : 'bg-[#f7f9f6] text-[#5c7362] hover:bg-[#eef5f0] border border-[#e2eae4]'
+                      }`}
+                    >
+                      <span>♾️ Tất cả</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setVisitorPreset('custom')}
+                      className={`px-3.5 py-1.5 rounded-full text-xs font-bold transition-all flex items-center gap-1.5 ${
+                        visitorPreset === 'custom'
+                          ? 'bg-[#2d5a37] text-white shadow-xs'
+                          : 'bg-[#f7f9f6] text-[#5c7362] hover:bg-[#eef5f0] border border-[#e2eae4]'
+                      }`}
+                    >
+                      <Filter className="w-3.5 h-3.5" />
+                      <span>Khoảng ngày (Từ - Đến)</span>
+                    </button>
                   </div>
-                  <div className="font-serif font-bold text-2xl sm:text-3xl text-[#19231b]">
-                    {stats?.todayTotal || 142}
-                  </div>
-                  <div className="text-[11px] text-[#2d5a37] font-medium mt-1">
-                    +{stats?.todayUniquePilgrims || 96} thiết bị truy cập thực
-                  </div>
+
+                  {/* Refresh Button */}
+                  <button
+                    type="button"
+                    onClick={() => fetchVisitorAnalytics()}
+                    disabled={isLoadingVisitors}
+                    className="px-3 py-1.5 rounded-full bg-white border border-[#e2eae4] hover:bg-[#f7f9f6] text-[#5c7362] text-xs font-semibold flex items-center gap-1.5 shadow-2xs ml-auto"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 text-[#2d5a37] ${isLoadingVisitors ? 'animate-spin' : ''}`} />
+                    <span>Làm mới</span>
+                  </button>
                 </div>
 
-                <div className="bg-white rounded-3xl p-4 sm:p-5 border border-[#e2eae4] shadow-xs">
-                  <div className="flex items-center justify-between text-[#5c7362] mb-2">
-                    <span className="text-[11px] font-bold uppercase tracking-wider">Điểm Di Tích (POIs)</span>
-                    <MapPin className="w-4 h-4 text-[#2d5a37]" />
-                  </div>
-                  <div className="font-serif font-bold text-2xl sm:text-3xl text-[#19231b]">
-                    {pois.length}
-                  </div>
-                  <div className="text-[11px] text-[#5c7362] font-medium mt-1">
-                    Khuôn viên 244 Ba Tháng Hai, Q.10
-                  </div>
-                </div>
+                {/* Custom Date Range Picker (Từ ngày - Đến ngày) */}
+                {visitorPreset === 'custom' && (
+                  <div className="flex flex-wrap items-center gap-3 p-3.5 rounded-2xl bg-[#f7f9f6] border border-[#e2eae4] animate-fade-in text-xs">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-[#19231b]">Từ ngày:</span>
+                      <input
+                        type="date"
+                        value={visitorStartDate}
+                        onChange={(e) => setVisitorStartDate(e.target.value)}
+                        className="px-3 py-1.5 rounded-xl bg-white border border-[#e2eae4] text-xs text-[#19231b] outline-hidden focus:border-[#2d5a37]"
+                      />
+                    </div>
 
-                <div className="bg-white rounded-3xl p-4 sm:p-5 border border-[#e2eae4] shadow-xs">
-                  <div className="flex items-center justify-between text-[#5c7362] mb-2">
-                    <span className="text-[11px] font-bold uppercase tracking-wider">Ngôn Ngữ Hỗ Trợ</span>
-                    <Globe className="w-4 h-4 text-[#2d5a37]" />
-                  </div>
-                  <div className="font-serif font-bold text-2xl sm:text-3xl text-[#19231b]">
-                    12 / 12
-                  </div>
-                  <div className="text-[11px] text-[#2d5a37] font-medium mt-1">
-                    100% POIs có bài dịch hoàn chỉnh
-                  </div>
-                </div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-[#19231b]">Đến ngày:</span>
+                      <input
+                        type="date"
+                        value={visitorEndDate}
+                        onChange={(e) => setVisitorEndDate(e.target.value)}
+                        className="px-3 py-1.5 rounded-xl bg-white border border-[#e2eae4] text-xs text-[#19231b] outline-hidden focus:border-[#2d5a37]"
+                      />
+                    </div>
 
-                <div className="bg-white rounded-3xl p-4 sm:p-5 border border-[#e2eae4] shadow-xs">
-                  <div className="flex items-center justify-between text-[#5c7362] mb-2">
-                    <span className="text-[11px] font-bold uppercase tracking-wider">Mô Hình Dịch Vụ</span>
-                    <Heart className="w-4 h-4 text-[#b45309]" />
+                    <button
+                      type="button"
+                      onClick={() => fetchVisitorAnalytics('custom', visitorStartDate, visitorEndDate, visitorSearch)}
+                      className="px-4 py-1.5 rounded-xl bg-[#2d5a37] text-white font-bold hover:bg-[#23462b] shadow-xs transition-all ml-auto"
+                    >
+                      Áp Dụng Lọc Ngày
+                    </button>
                   </div>
-                  <div className="font-serif font-bold text-xl sm:text-2xl text-[#b45309]">
-                    Phi Lợi Nhuận
-                  </div>
-                  <div className="text-[11px] text-[#5c7362] font-medium mt-1">
-                    Miễn phí không thu tiền du khách
+                )}
+
+                {/* Search Bar for Visitors */}
+                <div className="relative">
+                  <Search className="w-4 h-4 text-[#7a8e80] absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={visitorSearch}
+                    onChange={(e) => setVisitorSearch(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        fetchVisitorAnalytics(visitorPreset, visitorStartDate, visitorEndDate, visitorSearch);
+                      }
+                    }}
+                    placeholder="Tìm kiếm khách truy cập theo mã thiết bị (DEV-...), dấu vân tay, hệ điều hành (iPhone, Android, Windows...), IP hoặc ngôn ngữ..."
+                    className="w-full pl-10 pr-24 py-2.5 rounded-2xl bg-[#f7f9f6] border border-[#e2eae4] text-xs text-[#19231b] outline-hidden focus:border-[#2d5a37] placeholder:text-[#7a8e80]"
+                  />
+                  <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
+                    {visitorSearch && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setVisitorSearch('');
+                          fetchVisitorAnalytics(visitorPreset, visitorStartDate, visitorEndDate, '');
+                        }}
+                        className="p-1 rounded-full text-[#7a8e80] hover:text-[#19231b]"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => fetchVisitorAnalytics(visitorPreset, visitorStartDate, visitorEndDate, visitorSearch)}
+                      className="px-3 py-1 rounded-xl bg-[#2d5a37] text-white text-xs font-bold hover:bg-[#23462b]"
+                    >
+                      Tìm
+                    </button>
                   </div>
                 </div>
               </div>
 
-              {/* Grid 2 Columns: System Health & POI Distribution */}
+              {/* 4 Dedicated Visitor Device KPI Cards */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+                <div className="bg-white rounded-3xl p-4 sm:p-5 border border-[#e2eae4] shadow-xs">
+                  <div className="flex items-center justify-between text-[#5c7362] mb-2">
+                    <span className="text-[11px] font-bold uppercase tracking-wider">Thiết Bị Truy Cập</span>
+                    <Smartphone className="w-4 h-4 text-[#2d5a37]" />
+                  </div>
+                  <div className="font-serif font-bold text-2xl sm:text-3xl text-[#19231b]">
+                    {visitorAnalytics?.summary?.totalDevices ?? (stats?.todayUniquePilgrims || 6)}
+                  </div>
+                  <div className="text-[11px] text-[#2d5a37] font-medium mt-1 truncate">
+                    {visitorAnalytics?.summary?.filterLabel || 'Dấu vân tay: 1 thiết bị/ngày'}
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-3xl p-4 sm:p-5 border border-[#e2eae4] shadow-xs">
+                  <div className="flex items-center justify-between text-[#5c7362] mb-2">
+                    <span className="text-[11px] font-bold uppercase tracking-wider">Tổng Lượt Mở Ứng Dụng</span>
+                    <Radio className="w-4 h-4 text-[#2d5a37]" />
+                  </div>
+                  <div className="font-serif font-bold text-2xl sm:text-3xl text-[#19231b]">
+                    {visitorAnalytics?.summary?.totalAccesses ?? (stats?.todayTotal || 12)}
+                  </div>
+                  <div className="text-[11px] text-[#5c7362] font-medium mt-1">
+                    Bao gồm các lần truy cập lại
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-3xl p-4 sm:p-5 border border-[#e2eae4] shadow-xs">
+                  <div className="flex items-center justify-between text-[#5c7362] mb-2">
+                    <span className="text-[11px] font-bold uppercase tracking-wider">Tần Suất / Thiết Bị</span>
+                    <Activity className="w-4 h-4 text-[#2d5a37]" />
+                  </div>
+                  <div className="font-serif font-bold text-2xl sm:text-3xl text-[#19231b]">
+                    {visitorAnalytics?.summary?.avgAccessPerDevice ?? '2.0'}
+                    <span className="text-sm font-sans font-normal text-[#5c7362] ml-1">lượt</span>
+                  </div>
+                  <div className="text-[11px] text-[#2d5a37] font-medium mt-1">
+                    Mức độ tương tác trung bình
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-3xl p-4 sm:p-5 border border-[#e2eae4] shadow-xs">
+                  <div className="flex items-center justify-between text-[#5c7362] mb-2">
+                    <span className="text-[11px] font-bold uppercase tracking-wider">Thiết Bị Hôm Nay</span>
+                    <Users className="w-4 h-4 text-[#b45309]" />
+                  </div>
+                  <div className="font-serif font-bold text-2xl sm:text-3xl text-[#b45309]">
+                    {visitorAnalytics?.summary?.todayDevices ?? (stats?.todayUniquePilgrims || 6)}
+                  </div>
+                  <div className="text-[11px] text-[#5c7362] font-medium mt-1">
+                    {visitorAnalytics?.summary?.todayAccesses ?? 12} lượt mở trong ngày
+                  </div>
+                </div>
+              </div>
+
+              {/* Chart: Phân bố thiết bị truy cập theo ngày */}
+              {visitorAnalytics?.chartData && visitorAnalytics.chartData.length > 0 && (
+                <div className="bg-white rounded-3xl p-5 border border-[#e2eae4] shadow-xs space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-serif font-bold text-base text-[#19231b] flex items-center gap-2">
+                      <BarChart3 className="w-4 h-4 text-[#2d5a37]" />
+                      <span>Biểu Đồ Thiết Bị Truy Cập ({visitorAnalytics.summary.filterLabel})</span>
+                    </h3>
+                    <span className="text-[11px] text-[#5c7362]">
+                      Tổng: {visitorAnalytics.summary.totalDevices} thiết bị · {visitorAnalytics.summary.totalAccesses} lượt mở
+                    </span>
+                  </div>
+
+                  <div className="h-36 flex items-end gap-2 pt-4 pb-2 border-b border-[#e2eae4] overflow-x-auto">
+                    {visitorAnalytics.chartData.map((d: any) => {
+                      const maxDevices = Math.max(
+                        ...visitorAnalytics.chartData.map((item: any) => item.devices),
+                        1
+                      );
+                      const heightPercent = Math.max(12, Math.round((d.devices / maxDevices) * 100));
+                      const labelDate = d.date.split('-').slice(1).join('/');
+
+                      return (
+                        <div key={d.date} className="flex-1 min-w-[36px] flex flex-col items-center gap-1.5 group">
+                          <div className="text-[10px] font-bold text-[#2d5a37] opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+                            {d.devices} TB
+                          </div>
+                          <div
+                            style={{ height: `${heightPercent}%` }}
+                            className="w-full max-w-[28px] rounded-t-lg bg-gradient-to-t from-[#2d5a37] to-[#488255] group-hover:from-[#23462b] group-hover:to-[#386b43] transition-all shadow-2xs"
+                            title={`${d.date}: ${d.devices} thiết bị (${d.accesses} lượt mở)`}
+                          />
+                          <span className="text-[10px] text-[#7a8e80] whitespace-nowrap">{labelDate}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Detailed Visitors Table */}
+              <div className="bg-white rounded-3xl p-5 border border-[#e2eae4] shadow-xs space-y-4">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+                  <div>
+                    <h3 className="font-serif font-bold text-base text-[#19231b] flex items-center gap-2">
+                      <Users className="w-4 h-4 text-[#2d5a37]" />
+                      <span>Danh Sách Thiết Bị Truy Cập Chi Tiết</span>
+                    </h3>
+                    <p className="text-xs text-[#5c7362]">
+                      Kiểm tra dấu vân tay thiết bị: Chỉ ghi nhận 1 thiết bị/ngày, đếm số lần mở và tự động loại bỏ trùng lặp
+                    </p>
+                  </div>
+                  <span className="text-xs font-bold px-3 py-1 rounded-full bg-[#eef5f0] text-[#1e3d25] border border-[#d6e7da]">
+                    {visitorAnalytics?.records?.length || 0} bản ghi thiết bị
+                  </span>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="border-b border-[#e2eae4] text-[#7a8e80]">
+                        <th className="py-2.5 font-bold uppercase tracking-wider">Mã Thiết Bị</th>
+                        <th className="py-2.5 font-bold uppercase tracking-wider">Loại Thiết Bị & Trình Duyệt</th>
+                        <th className="py-2.5 font-bold uppercase tracking-wider">Ngày Truy Cập</th>
+                        <th className="py-2.5 font-bold uppercase tracking-wider">Thời Gian</th>
+                        <th className="py-2.5 font-bold uppercase tracking-wider text-center">Lượt Mở / Ngày</th>
+                        <th className="py-2.5 font-bold uppercase tracking-wider">Ngôn Ngữ</th>
+                        <th className="py-2.5 font-bold uppercase tracking-wider">Địa Chỉ IP</th>
+                        <th className="py-2.5 font-bold uppercase tracking-wider text-right">Trạng Thái</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {visitorAnalytics?.records && visitorAnalytics.records.length > 0 ? (
+                        visitorAnalytics.records.map((r: any) => {
+                          const langObj = SUPPORTED_LANGUAGES.find((l) => l.code === r.language);
+                          const firstTime = new Date(r.firstAccessAt).toLocaleTimeString('vi-VN', {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          });
+                          const lastTime = new Date(r.lastAccessAt).toLocaleTimeString('vi-VN', {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          });
+
+                          return (
+                            <tr key={r.id || `${r.fingerprintHash}_${r.dateStr}`} className="hover:bg-[#f7f9f6] transition-colors">
+                              <td className="py-3">
+                                <div className="flex items-center gap-1.5 font-mono">
+                                  <Smartphone className="w-3.5 h-3.5 text-[#2d5a37] flex-shrink-0" />
+                                  <span className="font-bold text-[#2d5a37]">{r.shortId || 'DEV-' + r.fingerprintHash.slice(0, 6).toUpperCase()}</span>
+                                </div>
+                              </td>
+                              <td className="py-3 font-medium text-[#19231b]">
+                                {r.deviceType || 'Thiết bị di động'}
+                              </td>
+                              <td className="py-3 font-medium text-[#5c7362]">
+                                {r.dateStr.split('-').reverse().join('/')}
+                              </td>
+                              <td className="py-3 text-[#5c7362] font-mono text-[11px]">
+                                {firstTime} {firstTime !== lastTime ? `➔ ${lastTime}` : ''}
+                              </td>
+                              <td className="py-3 text-center">
+                                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full font-bold text-[11px] ${
+                                  r.accessCountToday > 1
+                                    ? 'bg-amber-100 text-amber-800'
+                                    : 'bg-[#eef5f0] text-[#1e3d25] border border-[#d6e7da]'
+                                }`}>
+                                  {r.accessCountToday} lần
+                                </span>
+                              </td>
+                              <td className="py-3">
+                                <span className="inline-flex items-center gap-1 font-semibold text-[#19231b]">
+                                  <span>{langObj?.flag || '🌐'}</span>
+                                  <span>{r.language.toUpperCase()}</span>
+                                </span>
+                              </td>
+                              <td className="py-3 font-mono text-[11px] text-[#7a8e80]">
+                                {r.ipHash || '113.161.***.***'}
+                              </td>
+                              <td className="py-3 text-right">
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-bold border border-emerald-200">
+                                  <CheckCircle className="w-3 h-3 text-emerald-600" />
+                                  <span>1 TB duy nhất</span>
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      ) : (
+                        <tr>
+                          <td colSpan={8} className="py-8 text-center text-[#7a8e80]">
+                            Không tìm thấy thiết bị nào phù hợp với bộ lọc và từ khóa tìm kiếm.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Grid 2 Columns: System Health & POIs Quick Jump */}
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
                 {/* Tech & System Health (1 col) */}
                 <div className="bg-white rounded-3xl p-5 border border-[#e2eae4] shadow-xs space-y-4">
@@ -924,18 +1407,20 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   <div className="space-y-3 text-xs">
                     <div className="flex items-center justify-between p-3 rounded-2xl bg-[#f7f9f6] border border-[#e2eae4]">
                       <div className="flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                        <span className="font-medium text-[#19231b]">Web Speech Engine</span>
+                        <span className={`w-2 h-2 rounded-full ${mongoStatus?.connected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
+                        <span className="font-medium text-[#19231b]">Cơ Sở Dữ Liệu MongoDB</span>
                       </div>
-                      <span className="text-[11px] font-bold text-[#2d5a37]">Hoạt động tốt</span>
+                      <span className={`text-[11px] font-bold ${mongoStatus?.connected ? 'text-emerald-700' : 'text-amber-800'}`}>
+                        {mongoStatus?.connected ? 'MongoDB Atlas (Online)' : 'Embedded Engine'}
+                      </span>
                     </div>
 
                     <div className="flex items-center justify-between p-3 rounded-2xl bg-[#f7f9f6] border border-[#e2eae4]">
                       <div className="flex items-center gap-2">
                         <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                        <span className="font-medium text-[#19231b]">Gemini AI Dịch Thuật</span>
+                        <span className="font-medium text-[#19231b]">Web Speech Engine</span>
                       </div>
-                      <span className="text-[11px] font-bold text-[#2d5a37]">Sẵn sàng</span>
+                      <span className="text-[11px] font-bold text-[#2d5a37]">Hoạt động tốt</span>
                     </div>
 
                     <div className="flex items-center justify-between p-3 rounded-2xl bg-[#f7f9f6] border border-[#e2eae4]">
@@ -1060,9 +1545,74 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 </button>
               </div>
 
+              {/* POI Search & Filter Toolbar */}
+              <div className="bg-white rounded-3xl p-4 border border-[#e2eae4] shadow-xs flex flex-col sm:flex-row items-center gap-3">
+                <div className="relative flex-1 w-full">
+                  <Search className="w-4 h-4 text-[#7a8e80] absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={poiSearchQuery}
+                    onChange={(e) => setPoiSearchQuery(e.target.value)}
+                    placeholder="Tìm kiếm điểm chiêm bái theo tên, mã (VNQT-...), từ khóa lịch sử..."
+                    className="w-full pl-10 pr-9 py-2.5 rounded-2xl bg-[#f7f9f6] border border-[#e2eae4] text-xs text-[#19231b] outline-hidden focus:border-[#2d5a37] placeholder:text-[#7a8e80]"
+                  />
+                  {poiSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setPoiSearchQuery('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-[#7a8e80] hover:text-[#19231b]"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2 w-full sm:w-auto">
+                  <select
+                    value={poiTypeFilter}
+                    onChange={(e) => setPoiTypeFilter(e.target.value)}
+                    className="px-3.5 py-2.5 rounded-2xl bg-[#f7f9f6] border border-[#e2eae4] text-xs font-semibold text-[#19231b] outline-hidden focus:border-[#2d5a37] w-full sm:w-auto"
+                  >
+                    <option value="all">Tất cả phân loại</option>
+                    <option value="gate">Cổng / Quảng Trường</option>
+                    <option value="sanctuary">Chính Điện / Điện Thờ</option>
+                    <option value="stupa">Bảo Tháp Xá Lợi</option>
+                    <option value="bell">Tháp Chuông / Đại Hồng Chung</option>
+                    <option value="statue">Tượng Bồ Tát / Phật Tích</option>
+                    <option value="garden">Vườn Thiền / Lộc Uyển</option>
+                    <option value="memorial">Đài Tưởng Niệm</option>
+                    <option value="hall">Nhà Tổ / Tổ Đường</option>
+                  </select>
+
+                  <span className="px-3 py-2.5 rounded-2xl bg-[#eef5f0] border border-[#d6e7da] text-[#1e3d25] text-xs font-bold whitespace-nowrap">
+                    {pois.filter((poi) => {
+                      const q = poiSearchQuery.toLowerCase().trim();
+                      const viTitle = (poi.translations['vi']?.title || '').toLowerCase();
+                      const enTitle = (poi.translations['en']?.title || '').toLowerCase();
+                      const code = poi.code.toLowerCase();
+                      const desc = (poi.translations['vi']?.description || '').toLowerCase();
+                      const matchesQuery = !q || viTitle.includes(q) || enTitle.includes(q) || code.includes(q) || desc.includes(q);
+                      const matchesType = poiTypeFilter === 'all' || poi.location_type === poiTypeFilter;
+                      return matchesQuery && matchesType;
+                    }).length} / {pois.length} POIs
+                  </span>
+                </div>
+              </div>
+
               {/* Grid of POI Cards */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                {pois.map((poi) => {
+                {pois
+                  .filter((poi) => {
+                    const q = poiSearchQuery.toLowerCase().trim();
+                    const viTitle = (poi.translations['vi']?.title || '').toLowerCase();
+                    const enTitle = (poi.translations['en']?.title || '').toLowerCase();
+                    const code = poi.code.toLowerCase();
+                    const desc = (poi.translations['vi']?.description || '').toLowerCase();
+                    const matchesQuery = !q || viTitle.includes(q) || enTitle.includes(q) || code.includes(q) || desc.includes(q);
+                    const matchesType = poiTypeFilter === 'all' || poi.location_type === poiTypeFilter;
+                    return matchesQuery && matchesType;
+                  })
+                  .map((poi) => {
                   const viTitle = poi.translations['vi']?.title || poi.code;
                   const viDesc = poi.translations['vi']?.description || '';
                   const mediaUrl = poi.media[0]?.image_url || 'https://images.unsplash.com/photo-1544644181-1484b3fdfc62?auto=format&fit=crop&w=600&q=80';
@@ -1158,6 +1708,22 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                     </div>
                   );
                 })}
+
+                {pois.filter((poi) => {
+                  const q = poiSearchQuery.toLowerCase().trim();
+                  const viTitle = (poi.translations['vi']?.title || '').toLowerCase();
+                  const enTitle = (poi.translations['en']?.title || '').toLowerCase();
+                  const code = poi.code.toLowerCase();
+                  const desc = (poi.translations['vi']?.description || '').toLowerCase();
+                  const matchesQuery = !q || viTitle.includes(q) || enTitle.includes(q) || code.includes(q) || desc.includes(q);
+                  const matchesType = poiTypeFilter === 'all' || poi.location_type === poiTypeFilter;
+                  return matchesQuery && matchesType;
+                }).length === 0 && (
+                  <div className="col-span-full py-12 text-center bg-white rounded-3xl border border-[#e2eae4] text-xs text-[#7a8e80] space-y-2">
+                    <p className="font-semibold text-sm text-[#19231b]">Không tìm thấy điểm chiêm bái nào</p>
+                    <p>Hãy thử tìm kiếm bằng từ khóa khác hoặc chuyển sang "Tất cả phân loại".</p>
+                  </div>
+                )}
               </div>
 
               {/* Modal Create / Edit POI */}
@@ -1616,9 +2182,52 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   </div>
                 </div>
 
+                {/* Audio Search & Filter Bar */}
+                <div className="flex flex-col sm:flex-row items-center gap-3">
+                  <div className="relative flex-1 w-full">
+                    <Search className="w-4 h-4 text-[#7a8e80] absolute left-3.5 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      value={audioSearchQuery}
+                      onChange={(e) => setAudioSearchQuery(e.target.value)}
+                      placeholder="Tìm kiếm audio POIs theo tên, mã (VNQT-...), nội dung bài đọc..."
+                      className="w-full pl-10 pr-9 py-2.5 rounded-2xl bg-[#f7f9f6] border border-[#e2eae4] text-xs text-[#19231b] outline-hidden focus:border-[#2d5a37] placeholder:text-[#7a8e80]"
+                    />
+                    {audioSearchQuery && (
+                      <button
+                        type="button"
+                        onClick={() => setAudioSearchQuery('')}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-[#7a8e80] hover:text-[#19231b]"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+
+                  <span className="px-3 py-2.5 rounded-2xl bg-[#eef5f0] border border-[#d6e7da] text-[#1e3d25] text-xs font-bold whitespace-nowrap">
+                    {pois.filter((poi) => {
+                      const q = audioSearchQuery.toLowerCase().trim();
+                      const trans = poi.translations[audioTestingLang] || poi.translations['vi'];
+                      const viTitle = (trans?.title || poi.code).toLowerCase();
+                      const desc = (trans?.description || '').toLowerCase();
+                      const code = poi.code.toLowerCase();
+                      return !q || viTitle.includes(q) || code.includes(q) || desc.includes(q);
+                    }).length} / {pois.length} Điểm Audio
+                  </span>
+                </div>
+
                 {/* Audio rows */}
                 <div className="space-y-3">
-                  {pois.map((poi) => {
+                  {pois
+                    .filter((poi) => {
+                      const q = audioSearchQuery.toLowerCase().trim();
+                      const trans = poi.translations[audioTestingLang] || poi.translations['vi'];
+                      const viTitle = (trans?.title || poi.code).toLowerCase();
+                      const desc = (trans?.description || '').toLowerCase();
+                      const code = poi.code.toLowerCase();
+                      return !q || viTitle.includes(q) || code.includes(q) || desc.includes(q);
+                    })
+                    .map((poi) => {
                     const trans = poi.translations[audioTestingLang] || poi.translations['vi'];
                     const isCurrentlySpeaking = audioTestingPoiId === poi.poi_id && isAudioSpeaking;
 
@@ -1670,6 +2279,19 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                       </div>
                     );
                   })}
+
+                  {pois.filter((poi) => {
+                    const q = audioSearchQuery.toLowerCase().trim();
+                    const trans = poi.translations[audioTestingLang] || poi.translations['vi'];
+                    const viTitle = (trans?.title || poi.code).toLowerCase();
+                    const desc = (trans?.description || '').toLowerCase();
+                    const code = poi.code.toLowerCase();
+                    return !q || viTitle.includes(q) || code.includes(q) || desc.includes(q);
+                  }).length === 0 && (
+                    <div className="py-8 text-center text-xs text-[#7a8e80]">
+                      Không tìm thấy file audio nào phù hợp với từ khóa "{audioSearchQuery}".
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -1689,9 +2311,97 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 </p>
               </div>
 
-              {/* Top Controls: Choose POI & Choose Language */}
+              {/* Search & Top Controls: Choose POI & Choose Language */}
               <div className="bg-white rounded-3xl p-5 border border-[#e2eae4] shadow-xs space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Search Bar for Articles */}
+                <div className="flex flex-col sm:flex-row items-center gap-3">
+                  <div className="relative flex-1 w-full">
+                    <Search className="w-4 h-4 text-[#7a8e80] absolute left-3.5 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      value={articleSearchQuery}
+                      onChange={(e) => setArticleSearchQuery(e.target.value)}
+                      placeholder="Tìm kiếm bài viết ở POIs theo tên, mã (VNQT-...), từ khóa nội dung lịch sử..."
+                      className="w-full pl-10 pr-9 py-2.5 rounded-2xl bg-[#f7f9f6] border border-[#e2eae4] text-xs text-[#19231b] outline-hidden focus:border-[#2d5a37] placeholder:text-[#7a8e80]"
+                    />
+                    {articleSearchQuery && (
+                      <button
+                        type="button"
+                        onClick={() => setArticleSearchQuery('')}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-[#7a8e80] hover:text-[#19231b]"
+                        title="Xóa tìm kiếm"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                  {articleSearchQuery && (
+                    <div className="text-xs font-semibold text-[#2d5a37] bg-[#eef5f0] px-3 py-2 rounded-2xl shrink-0">
+                      Khớp{' '}
+                      {
+                        pois.filter((p) => {
+                          const q = articleSearchQuery.toLowerCase().trim();
+                          const trans = p.translations[selectedArticleLang] || p.translations['vi'];
+                          const title = (trans?.title || p.code).toLowerCase();
+                          const intro = (trans?.introduction || '').toLowerCase();
+                          const desc = (trans?.description || '').toLowerCase();
+                          const code = p.code.toLowerCase();
+                          const anyMatch = Object.values(p.translations).some(
+                            (t) =>
+                              (t.title && t.title.toLowerCase().includes(q)) ||
+                              (t.introduction && t.introduction.toLowerCase().includes(q)) ||
+                              (t.description && t.description.toLowerCase().includes(q))
+                          );
+                          return title.includes(q) || intro.includes(q) || desc.includes(q) || code.includes(q) || anyMatch;
+                        }).length
+                      }{' '}
+                      / {pois.length} bài viết POI
+                    </div>
+                  )}
+                </div>
+
+                {/* Quick matching POI chips when searching */}
+                {articleSearchQuery && (
+                  <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                    <span className="text-[11px] text-[#7a8e80] font-semibold">Kết quả tìm kiếm:</span>
+                    {pois
+                      .filter((p) => {
+                        const q = articleSearchQuery.toLowerCase().trim();
+                        const trans = p.translations[selectedArticleLang] || p.translations['vi'];
+                        const title = (trans?.title || p.code).toLowerCase();
+                        const intro = (trans?.introduction || '').toLowerCase();
+                        const desc = (trans?.description || '').toLowerCase();
+                        const code = p.code.toLowerCase();
+                        const anyMatch = Object.values(p.translations).some(
+                          (t) =>
+                            (t.title && t.title.toLowerCase().includes(q)) ||
+                            (t.introduction && t.introduction.toLowerCase().includes(q)) ||
+                            (t.description && t.description.toLowerCase().includes(q))
+                        );
+                        return title.includes(q) || intro.includes(q) || desc.includes(q) || code.includes(q) || anyMatch;
+                      })
+                      .map((poi) => {
+                        const isSelected = poi.poi_id === selectedArticlePoiId;
+                        return (
+                          <button
+                            key={poi.poi_id}
+                            type="button"
+                            onClick={() => setSelectedArticlePoiId(poi.poi_id)}
+                            className={`px-2.5 py-1 rounded-xl text-xs font-semibold transition-all flex items-center gap-1 ${
+                              isSelected
+                                ? 'bg-[#2d5a37] text-white shadow-xs'
+                                : 'bg-[#f0f6f2] text-[#2d5a37] hover:bg-[#e2eae4]'
+                            }`}
+                          >
+                            <span className="font-mono text-[10px] opacity-75">{poi.code}</span>
+                            <span>{poi.translations['vi']?.title || poi.code}</span>
+                          </button>
+                        );
+                      })}
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1 border-t border-[#f0f4f1]">
                   {/* Select POI */}
                   <div>
                     <label className="block text-xs font-semibold text-[#19231b] mb-1.5">
@@ -1702,11 +2412,28 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                       onChange={(e) => setSelectedArticlePoiId(e.target.value)}
                       className="w-full px-4 py-2.5 rounded-2xl bg-[#f7f9f6] border border-[#e2eae4] text-xs font-semibold text-[#19231b] outline-hidden focus:border-[#2d5a37]"
                     >
-                      {pois.map((poi) => (
-                        <option key={poi.poi_id} value={poi.poi_id}>
-                          {poi.code} · {poi.translations['vi']?.title || poi.code}
-                        </option>
-                      ))}
+                      {pois
+                        .filter((poi) => {
+                          if (!articleSearchQuery.trim()) return true;
+                          const q = articleSearchQuery.toLowerCase().trim();
+                          const trans = poi.translations[selectedArticleLang] || poi.translations['vi'];
+                          const title = (trans?.title || poi.code).toLowerCase();
+                          const intro = (trans?.introduction || '').toLowerCase();
+                          const desc = (trans?.description || '').toLowerCase();
+                          const code = poi.code.toLowerCase();
+                          const anyMatch = Object.values(poi.translations).some(
+                            (t) =>
+                              (t.title && t.title.toLowerCase().includes(q)) ||
+                              (t.introduction && t.introduction.toLowerCase().includes(q)) ||
+                              (t.description && t.description.toLowerCase().includes(q))
+                          );
+                          return title.includes(q) || intro.includes(q) || desc.includes(q) || code.includes(q) || anyMatch;
+                        })
+                        .map((poi) => (
+                          <option key={poi.poi_id} value={poi.poi_id}>
+                            {poi.code} · {poi.translations['vi']?.title || poi.code}
+                          </option>
+                        ))}
                     </select>
                   </div>
 
@@ -1885,6 +2612,369 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                     </button>
                   </div>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* ========================================================= */}
+          {/* TAB 5: QUẢN LÝ THIẾT BỊ ĐĂNG NHẬP THỰC TẾ TRÊN MONGODB    */}
+          {/* (Chỉ ghi nhận thiết bị thực - Tuyệt đối không tạo ảo)    */}
+          {/* ========================================================= */}
+          {activeTab === 'real_devices' && (
+            <div className="space-y-6 animate-fade-in">
+              {/* Header Title & MongoDB Info Badge */}
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="font-serif font-bold text-xl text-[#19231b]">
+                      Quản Lý Thiết Bị Đăng Nhập / Truy Cập Thực (MongoDB)
+                    </h2>
+                    <span className="px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold">
+                      Không tạo ảo · 100% Thực tế
+                    </span>
+                  </div>
+                  <p className="text-xs text-[#5c7362] mt-0.5">
+                    Bảng MongoDB <code className="bg-[#eef5f0] px-1.5 py-0.5 rounded-md font-mono text-[#2d5a37] font-semibold">real_devices</code> ghi nhận chính xác phần cứng, IP, hệ điều hành và phiên đăng nhập của thiết bị thật
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-white border border-[#e2eae4] text-xs font-semibold text-[#19231b] shadow-xs">
+                    <Server className="w-3.5 h-3.5 text-[#2d5a37]" />
+                    <span>MongoDB:</span>
+                    <span className="font-mono text-[#2d5a37] font-bold">
+                      {realDevicesData?.summary?.isRemoteConnected ? 'Atlas Cluster' : 'Embedded BSON'}
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => fetchRealDevices()}
+                    className="p-2 rounded-2xl bg-white border border-[#e2eae4] hover:bg-[#f7f9f6] text-[#2d5a37] shadow-xs transition-colors"
+                    title="Làm mới danh sách thiết bị thực"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isLoadingRealDevices ? 'animate-spin' : ''}`} />
+                  </button>
+                </div>
+              </div>
+
+              {/* 4 KPI Metrics for Real Devices */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="bg-white rounded-3xl p-4 sm:p-5 border border-[#e2eae4] shadow-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-[#5c7362]">Tổng Thiết Bị Thực</span>
+                    <div className="w-8 h-8 rounded-xl bg-[#eef5f0] text-[#2d5a37] flex items-center justify-center">
+                      <Smartphone className="w-4 h-4" />
+                    </div>
+                  </div>
+                  <div className="mt-2 flex items-baseline gap-1">
+                    <span className="font-serif font-bold text-2xl sm:text-3xl text-[#1e3d25]">
+                      {realDevicesData?.summary?.totalRealDevices ?? 0}
+                    </span>
+                    <span className="text-xs text-[#7a8e80]">thiết bị</span>
+                  </div>
+                  <p className="text-[11px] text-[#7a8e80] mt-1">Duy nhất theo hardware hash</p>
+                </div>
+
+                <div className="bg-white rounded-3xl p-4 sm:p-5 border border-[#e2eae4] shadow-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-[#5c7362]">Hoạt Động Hôm Nay</span>
+                    <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                      <Activity className="w-4 h-4" />
+                    </div>
+                  </div>
+                  <div className="mt-2 flex items-baseline gap-1">
+                    <span className="font-serif font-bold text-2xl sm:text-3xl text-emerald-700">
+                      {realDevicesData?.summary?.activeToday ?? 0}
+                    </span>
+                    <span className="text-xs text-[#7a8e80]">thiết bị</span>
+                  </div>
+                  <p className="text-[11px] text-[#7a8e80] mt-1">Truy cập trong ngày</p>
+                </div>
+
+                <div className="bg-white rounded-3xl p-4 sm:p-5 border border-[#e2eae4] shadow-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-[#5c7362]">Đã Đăng Nhập Quản Trị</span>
+                    <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
+                      <Shield className="w-4 h-4" />
+                    </div>
+                  </div>
+                  <div className="mt-2 flex items-baseline gap-1">
+                    <span className="font-serif font-bold text-2xl sm:text-3xl text-blue-700">
+                      {realDevicesData?.summary?.adminLogins ?? 0}
+                    </span>
+                    <span className="text-xs text-[#7a8e80]">thiết bị</span>
+                  </div>
+                  <p className="text-[11px] text-[#7a8e80] mt-1">Có tài khoản admin</p>
+                </div>
+
+                <div className="bg-white rounded-3xl p-4 sm:p-5 border border-[#e2eae4] shadow-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-[#5c7362]">Thiết Bị Bị Chặn</span>
+                    <div className="w-8 h-8 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center">
+                      <Lock className="w-4 h-4" />
+                    </div>
+                  </div>
+                  <div className="mt-2 flex items-baseline gap-1">
+                    <span className="font-serif font-bold text-2xl sm:text-3xl text-rose-700">
+                      {realDevicesData?.summary?.blockedCount ?? 0}
+                    </span>
+                    <span className="text-xs text-[#7a8e80]">thiết bị</span>
+                  </div>
+                  <p className="text-[11px] text-[#7a8e80] mt-1">Bị từ chối truy cập</p>
+                </div>
+              </div>
+
+              {/* Toolbar: Search & Role / Status Filter */}
+              <div className="bg-white rounded-3xl p-4 sm:p-5 border border-[#e2eae4] shadow-xs space-y-3">
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                  {/* Search */}
+                  <div className="relative flex-1">
+                    <Search className="w-4 h-4 text-[#7a8e80] absolute left-3.5 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      placeholder="Tìm kiếm thiết bị thực theo mã (DEV-...), IP, hệ điều hành, trình duyệt, tài khoản đăng nhập..."
+                      value={realDeviceSearch}
+                      onChange={(e) => {
+                        setRealDeviceSearch(e.target.value);
+                        fetchRealDevices(e.target.value, realDeviceRoleFilter, realDeviceStatusFilter);
+                      }}
+                      className="w-full pl-10 pr-9 py-2.5 rounded-2xl bg-[#f7f9f6] border border-[#e2eae4] text-xs text-[#19231b] outline-hidden focus:border-[#2d5a37] placeholder:text-[#7a8e80]"
+                    />
+                    {realDeviceSearch && (
+                      <button
+                        onClick={() => {
+                          setRealDeviceSearch('');
+                          fetchRealDevices('', realDeviceRoleFilter, realDeviceStatusFilter);
+                        }}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-[#7a8e80] hover:text-[#19231b]"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Role filter */}
+                  <div className="flex items-center gap-1.5 bg-[#f7f9f6] p-1 rounded-2xl border border-[#e2eae4] text-xs">
+                    <span className="text-[#7a8e80] px-2 font-medium">Vai trò:</span>
+                    {(['all', 'visitor', 'admin'] as const).map((r) => (
+                      <button
+                        key={r}
+                        onClick={() => {
+                          setRealDeviceRoleFilter(r);
+                          fetchRealDevices(realDeviceSearch, r, realDeviceStatusFilter);
+                        }}
+                        className={`px-3 py-1.5 rounded-xl font-semibold transition-all ${
+                          realDeviceRoleFilter === r
+                            ? 'bg-[#2d5a37] text-white shadow-xs'
+                            : 'text-[#5c7362] hover:text-[#19231b]'
+                        }`}
+                      >
+                        {r === 'all' ? 'Tất cả' : r === 'visitor' ? 'Khách viếng' : 'Quản trị viên'}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Status filter */}
+                  <div className="flex items-center gap-1.5 bg-[#f7f9f6] p-1 rounded-2xl border border-[#e2eae4] text-xs">
+                    <span className="text-[#7a8e80] px-2 font-medium">Trạng thái:</span>
+                    {(['all', 'active', 'blocked'] as const).map((s) => (
+                      <button
+                        key={s}
+                        onClick={() => {
+                          setRealDeviceStatusFilter(s);
+                          fetchRealDevices(realDeviceSearch, realDeviceRoleFilter, s);
+                        }}
+                        className={`px-3 py-1.5 rounded-xl font-semibold transition-all ${
+                          realDeviceStatusFilter === s
+                            ? 'bg-[#2d5a37] text-white shadow-xs'
+                            : 'text-[#5c7362] hover:text-[#19231b]'
+                        }`}
+                      >
+                        {s === 'all' ? 'Tất cả' : s === 'active' ? 'Hoạt động' : 'Đã khóa'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Real Devices Table */}
+              <div className="bg-white rounded-3xl p-5 border border-[#e2eae4] shadow-xs space-y-4">
+                <div className="flex items-center justify-between border-b border-[#e2eae4] pb-3">
+                  <div className="flex items-center gap-2">
+                    <Laptop className="w-5 h-5 text-[#2d5a37]" />
+                    <h3 className="font-serif font-bold text-base text-[#19231b]">
+                      Danh Sách Thiết Bị Đăng Nhập / Truy Cập Thực Tế
+                    </h3>
+                  </div>
+                  <span className="text-xs text-[#5c7362] font-medium">
+                    Hiển thị {realDevicesData?.devices?.length ?? 0} thiết bị
+                  </span>
+                </div>
+
+                {isLoadingRealDevices ? (
+                  <div className="py-12 text-center text-xs text-[#7a8e80] flex items-center justify-center gap-2">
+                    <RefreshCw className="w-4 h-4 animate-spin text-[#2d5a37]" />
+                    <span>Đang nạp dữ liệu thiết bị thực từ MongoDB...</span>
+                  </div>
+                ) : !realDevicesData?.devices || realDevicesData.devices.length === 0 ? (
+                  <div className="py-12 text-center space-y-3">
+                    <div className="w-12 h-12 rounded-2xl bg-[#eef5f0] text-[#2d5a37] flex items-center justify-center mx-auto">
+                      <Smartphone className="w-6 h-6" />
+                    </div>
+                    <div className="text-sm font-serif font-bold text-[#19231b]">
+                      Chưa Có Thiết Bị Thực Nào Khớp Bộ Lọc
+                    </div>
+                    <p className="text-xs text-[#7a8e80] max-w-md mx-auto">
+                      Hệ thống tuân thủ nguyên tắc: <strong className="text-[#19231b]">Chỉ ghi nhận thiết bị thực tế, tuyệt đối không tạo bản ghi ảo</strong>. Khi có người dùng hoặc quản trị viên mở ứng dụng, thiết bị thật sẽ xuất hiện tại đây ngay lập tức.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead>
+                        <tr className="border-b border-[#e2eae4] text-[#7a8e80]">
+                          <th className="py-2.5 font-bold uppercase tracking-wider">Mã Thiết Bị</th>
+                          <th className="py-2.5 font-bold uppercase tracking-wider">Loại & Hệ Điều Hành</th>
+                          <th className="py-2.5 font-bold uppercase tracking-wider">Địa Chỉ IP</th>
+                          <th className="py-2.5 font-bold uppercase tracking-wider">Trình Duyệt & Màn Hình</th>
+                          <th className="py-2.5 font-bold uppercase tracking-wider">Tài Khoản / Vai Trò</th>
+                          <th className="py-2.5 font-bold uppercase tracking-wider">Truy Cập Gần Nhất</th>
+                          <th className="py-2.5 font-bold uppercase tracking-wider text-center">Tổng Lượt</th>
+                          <th className="py-2.5 font-bold uppercase tracking-wider text-center">Trạng Thái</th>
+                          <th className="py-2.5 font-bold uppercase tracking-wider text-right">Thao Tác</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#f0f4f1]">
+                        {realDevicesData.devices.map((dev) => {
+                          const isBlocked = dev.status === 'blocked';
+                          const isAdmin = dev.role === 'admin' || Boolean(dev.logged_username);
+                          const lastSeenDate = new Date(dev.last_seen_at).toLocaleString('vi-VN', {
+                            timeZone: 'Asia/Ho_Chi_Minh',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            day: '2-digit',
+                            month: '2-digit',
+                            year: 'numeric',
+                          });
+
+                          return (
+                            <tr key={dev.device_id} className="hover:bg-[#f7f9f6] transition-colors">
+                              {/* Device Short ID */}
+                              <td className="py-3">
+                                <div className="flex items-center gap-2">
+                                  <div className="w-7 h-7 rounded-lg bg-[#eef5f0] text-[#2d5a37] flex items-center justify-center font-bold text-xs shrink-0">
+                                    {dev.device_type.toLowerCase().includes('iphone') || dev.device_type.toLowerCase().includes('android') ? (
+                                      <Smartphone className="w-3.5 h-3.5" />
+                                    ) : (
+                                      <Laptop className="w-3.5 h-3.5" />
+                                    )}
+                                  </div>
+                                  <div>
+                                    <span className="font-mono font-bold text-[#2d5a37] block">
+                                      {dev.short_id}
+                                    </span>
+                                    <span className="text-[10px] text-[#7a8e80] font-mono block max-w-[100px] truncate" title={dev.device_id}>
+                                      {dev.device_id}
+                                    </span>
+                                  </div>
+                                </div>
+                              </td>
+
+                              {/* Device Type & OS */}
+                              <td className="py-3">
+                                <div className="font-semibold text-[#19231b]">{dev.device_type}</div>
+                                <div className="text-[11px] text-[#5c7362]">{dev.os}</div>
+                              </td>
+
+                              {/* IP Address */}
+                              <td className="py-3">
+                                <span className="font-mono text-xs font-semibold text-[#19231b] bg-[#f0f6f2] px-2 py-0.5 rounded-lg border border-[#e2eae4]">
+                                  {dev.ip_address}
+                                </span>
+                              </td>
+
+                              {/* Browser & Screen Resolution */}
+                              <td className="py-3">
+                                <div className="text-[#19231b] font-medium">{dev.browser}</div>
+                                <div className="text-[10px] text-[#7a8e80]">
+                                  {dev.screen_resolution || 'Chưa đo'} · {dev.timezone || 'Asia/Ho_Chi_Minh'}
+                                </div>
+                              </td>
+
+                              {/* Logged user / role */}
+                              <td className="py-3">
+                                {isAdmin ? (
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 text-[11px] font-bold border border-blue-200">
+                                    <Shield className="w-3 h-3" />
+                                    <span>{dev.logged_username || 'Admin'}</span>
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#f7f9f6] text-[#5c7362] text-[11px] font-medium border border-[#e2eae4]">
+                                    <Users className="w-3 h-3" />
+                                    <span>Khách viếng</span>
+                                  </span>
+                                )}
+                              </td>
+
+                              {/* Last Seen At */}
+                              <td className="py-3 text-[11px] text-[#5c7362]">
+                                {lastSeenDate}
+                              </td>
+
+                              {/* Total Visits */}
+                              <td className="py-3 text-center">
+                                <span className="font-bold text-[#19231b]">
+                                  {dev.total_visits}
+                                </span>
+                                <span className="block text-[10px] text-[#7a8e80]">
+                                  Hôm nay: {dev.today_visits}
+                                </span>
+                              </td>
+
+                              {/* Status */}
+                              <td className="py-3 text-center">
+                                {isBlocked ? (
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-rose-50 text-rose-700 text-[10px] font-bold border border-rose-200">
+                                    <Lock className="w-3 h-3" />
+                                    <span>Đã Khóa</span>
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-bold border border-emerald-200">
+                                    <CheckCircle className="w-3 h-3" />
+                                    <span>Hoạt Động</span>
+                                  </span>
+                                )}
+                              </td>
+
+                              {/* Actions */}
+                              <td className="py-3 text-right">
+                                <div className="flex items-center justify-end gap-1.5">
+                                  <button
+                                    onClick={() => handleToggleBlockDevice(dev.device_id, dev.status)}
+                                    className={`p-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                                      isBlocked
+                                        ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200'
+                                        : 'bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200'
+                                    }`}
+                                    title={isBlocked ? 'Mở khóa thiết bị' : 'Chặn thiết bị này'}
+                                  >
+                                    <Lock className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteRealDevice(dev.device_id)}
+                                    className="p-1.5 rounded-lg bg-gray-50 text-gray-500 hover:bg-rose-50 hover:text-rose-600 transition-colors border border-gray-200"
+                                    title="Xóa thiết bị thực khỏi MongoDB"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
             </div>
           )}

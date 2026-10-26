@@ -49,15 +49,20 @@ const invalidLogin = authService.login('admin', 'wrong_pass');
 assert.strictEqual(invalidLogin.success, false);
 console.log('✅ Admin authentication & RBAC session verified.');
 
-// 4. Analytics & Browser Fingerprinting Anti-Spam
+// 4. Analytics & Device Fingerprinting Strict Daily Deduplication
 const fakeFingerprint = 'fp_test_hash_12345678_ci_cd';
-const firstLog = analyticsService.registerPilgrimageStart(fakeFingerprint, 'vi');
-assert.strictEqual(firstLog.success, true);
-assert.strictEqual(firstLog.isNewToday, true, 'First pilgrimage from fingerprint should be new today');
+const checkin1 = analyticsService.checkinDevice(fakeFingerprint, 'vi');
+assert.strictEqual(checkin1.isNewToday, true, 'First access today from device fingerprint must be recorded as new');
+assert.strictEqual(checkin1.accessCountToday, 1);
 
-const rapidSecondLog = analyticsService.registerPilgrimageStart(fakeFingerprint, 'vi');
-assert.strictEqual(rapidSecondLog.isNewToday, false, 'Rapid second pilgrimage should be throttled/not counted as new');
-console.log('✅ Browser fingerprinting anti-spam verified.');
+const checkin2 = analyticsService.checkinDevice(fakeFingerprint, 'vi');
+assert.strictEqual(checkin2.isNewToday, false, 'Second access today from same device must NOT count as a new device');
+assert.strictEqual(checkin2.accessCountToday, 2);
+
+const checkin3 = analyticsService.checkinDevice(fakeFingerprint, 'vi');
+assert.strictEqual(checkin3.isNewToday, false, 'Third access today must continue to deduplicate');
+assert.strictEqual(checkin3.accessCountToday, 3);
+console.log('✅ Device fingerprinting & strict 1-device-per-day deduplication verified.');
 
 // 5. GPS Kalman Filter Test
 const filter = new MobileGPSKalmanFilter();
@@ -90,4 +95,56 @@ assert.strictEqual(pyBell.success, true);
 assert(pyBell.dataUrl.startsWith('data:audio/wav;base64,'), 'Should produce valid WAV audio data URL');
 console.log('✅ Python Spatial & Buddhist Bell Audio Micro-Engine verified.');
 
-console.log('🎉 ALL BACKEND, PYTHON & ADMIN AUTH TESTS PASSED SUCCESSFULLY!');
+// 7. MongoDB Real Devices Table (Quản lý thiết bị đăng nhập/truy cập thực - Không tạo ảo)
+const initialRealDevices = await db.getRealDevices();
+assert.strictEqual(initialRealDevices.summary.mongoCollection, 'real_devices');
+
+// Ghi nhận 1 thiết bị thực tế
+const realDev = await db.recordRealDeviceAccess({
+  deviceId: 'real_test_iphone_16_promax',
+  ipAddress: '14.161.20.88',
+  userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1',
+  screenResolution: '430x932',
+  language: 'vi-VN',
+  timezone: 'Asia/Ho_Chi_Minh',
+});
+
+assert.strictEqual(realDev.device_type, 'iPhone (iOS)');
+assert.strictEqual(realDev.os, 'iOS (iPhone)');
+assert.strictEqual(realDev.browser, 'Apple Safari');
+assert.strictEqual(realDev.status, 'active');
+assert.strictEqual(realDev.total_visits, 1);
+assert.strictEqual(realDev.short_id, 'DEV-REALTE');
+
+// Thiết bị thực truy cập lần 2 trong ngày
+const realDevVisit2 = await db.recordRealDeviceAccess({
+  deviceId: 'real_test_iphone_16_promax',
+  ipAddress: '14.161.20.88',
+});
+assert.strictEqual(realDevVisit2.total_visits, 2);
+
+// Thiết bị thực đăng nhập tài khoản quản trị
+const realDevLogin = await db.recordRealDeviceLogin({
+  deviceId: 'real_test_iphone_16_promax',
+  username: 'admin',
+  role: 'admin',
+});
+assert.strictEqual(realDevLogin.role, 'admin');
+assert.strictEqual(realDevLogin.logged_username, 'admin');
+assert(realDevLogin.last_login_at);
+
+// Lấy danh sách từ MongoDB
+const realDevicesList = await db.getRealDevices({ search: 'iPhone' });
+assert.strictEqual(realDevicesList.devices.length, 1);
+assert.strictEqual(realDevicesList.summary.adminLogins >= 1, true);
+
+// Khóa và mở khóa thiết bị thực
+const blockedDev = await db.toggleBlockRealDevice('real_test_iphone_16_promax', true);
+assert.strictEqual(blockedDev?.status, 'blocked');
+
+const unblockedDev = await db.toggleBlockRealDevice('real_test_iphone_16_promax', false);
+assert.strictEqual(unblockedDev?.status, 'active');
+
+console.log('✅ MongoDB Real Devices Table (real_devices) verified without mock data.');
+
+console.log('🎉 ALL BACKEND, PYTHON, MONGODB & ADMIN AUTH TESTS PASSED SUCCESSFULLY!');
