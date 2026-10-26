@@ -19,6 +19,7 @@ jobs:
         with:
           node-version: 20
           cache: 'npm'
+          cache-dependency-path: package-lock.json
 
       - name: Setup Python Môi trường (Bắt buộc cho Spatial Engine)
         uses: actions/setup-python@v5
@@ -26,7 +27,7 @@ jobs:
           python-version: '3.10'
 
       - name: Install Dependencies
-        run: npm install --legacy-peer-deps
+        run: npm ci --legacy-peer-deps
 
       - name: Run Typecheck & Linter
         run: npm run lint
@@ -38,13 +39,47 @@ jobs:
       - name: Build Frontend & Production Bundle
         run: npm run build
 
-  trigger-render-deploy:
-    name: Trigger Render Live Deployment
+  docker-build:
+    name: Docker Multi-Stage Build
     needs: test-and-lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker Image
+        run: |
+          docker build -t vnqt-audio-guide:latest .
+
+  production-verify:
+    name: Production Verification & Deployment
+    needs: [test-and-lint, docker-build]
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
     steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Execute Deployment Verification Script
+        run: |
+          chmod +x ./scripts/deploy.sh
+          ./scripts/deploy.sh
+
       - name: Call Render Deploy Webhook
         run: |
-          echo "🚀 Code SẠCH 100%! Đang kích hoạt Render Deploy Webhook..."
-          curl -f -s -S -X POST "${{ secrets.RENDER_DEPLOY_WEBHOOK }}"
+          if [ -n "${{ secrets.RENDER_DEPLOY_WEBHOOK }}" ]; then
+            echo "🚀 Code SẠCH 100%! Đang kích hoạt Render Deploy Webhook..."
+            curl -f -s -S -X POST "${{ secrets.RENDER_DEPLOY_WEBHOOK }}"
+          else
+            echo "ℹ️  Bỏ qua webhook (RENDER_DEPLOY_WEBHOOK chưa được cấu hình trong GitHub Secrets)."
+          fi

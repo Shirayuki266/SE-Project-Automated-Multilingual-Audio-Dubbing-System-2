@@ -1,0 +1,10 @@
+node_modules
+dist
+build
+.git
+.github
+.aistudio
+*.log
+.env*
+!.env.example
+coverage
