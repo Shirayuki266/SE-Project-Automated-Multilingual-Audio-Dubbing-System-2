@@ -122,14 +122,24 @@ async function seedMongoDBAtlas() {
     console.log(`   ✓ Đã nạp ${mediaDocs.length} hình ảnh & tư liệu chiêm bái`);
 
     // 6. Real Devices collection (QUẢN LÝ THIẾT BỊ ĐĂNG NHẬP / TRUY CẬP THỰC - TUYỆT ĐỐI KHÔNG TẠO ẢO)
-    console.log('\n📱 6. Khởi tạo Bảng MongoDB "real_devices" (Không tạo bản ghi ảo)...');
+    console.log('\n📱 6. Khởi tạo Bảng MongoDB "real_devices" (Tạo bảng vật lý trực tiếp)...');
+    
+    // Kiểm tra xem bảng đã tồn tại trên Atlas chưa, nếu chưa thì gọi lệnh tạo bảng tường minh từ db hệ thống
+    const existingCollections = await db.listCollections({ name: 'real_devices' }).toArray();
+    if (existingCollections.length === 0) {
+      await db.createCollection('real_devices');
+      console.log('   ✓ Đã kích hoạt lệnh db.createCollection tạo bảng cứng vật lý trên Atlas');
+    }
+
     const realDevicesCol = db.collection('real_devices');
     await realDevicesCol.createIndex({ device_id: 1 }, { unique: true });
     await realDevicesCol.createIndex({ last_seen_at: -1 });
     await realDevicesCol.createIndex({ role: 1 });
     await realDevicesCol.createIndex({ status: 1 });
+    
     const realDeviceCount = await realDevicesCol.countDocuments();
     console.log(`   ✓ Bảng MongoDB "real_devices" đã sẵn sàng (chỉ mục device_id, last_seen_at, hiện có ${realDeviceCount} thiết bị thực).`);
+
 
     // Ensure pilgrimage_logs is removed
     const existingCols = await db.listCollections().toArray();
