@@ -86,8 +86,8 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [autoNarrationEnabled, setAutoNarrationEnabled] = useState<boolean>(false);
-  const [todayStartsCount, setTodayStartsCount] = useState<number>(142);
-  const [uniquePilgrimsCount, setUniquePilgrimsCount] = useState<number>(96);
+  const [todayStartsCount, setTodayStartsCount] = useState<number>(1);
+  const [uniquePilgrimsCount, setUniquePilgrimsCount] = useState<number>(1);
 
   // Audio Playback State
   const [isAudioPlaying, setIsAudioPlaying] = useState<boolean>(false);
@@ -222,7 +222,7 @@ export default function App() {
         .then((r) => r.json())
         .then((res) => {
           if (res.success && res.data) {
-            setTodayStartsCount(res.data.todayUniqueDevices || 142);
+            setTodayStartsCount(res.data.todayUniqueDevices || 1);
           }
         })
         .catch(() => {});

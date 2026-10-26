@@ -80,7 +80,7 @@ class MongoDatabaseEngine {
   private activeVisitorHashes: Set<string> = new Set();
   // Bảng MongoDB: Quản lý các thiết bị đăng nhập/truy cập thực (TUYỆT ĐỐI KHÔNG TẠO ẢO)
   private realDevices: Map<string, RealDeviceEntity> = new Map();
-  private totalStarts: number = 142;
+  private totalStarts: number = 0;
 
   constructor() {
     this.seedDatabase();
@@ -141,52 +141,6 @@ class MongoDatabaseEngine {
       });
     });
 
-    // 4. Seed Realistic Historical & Daily Devices for Analytics Dashboard
-    const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' });
-    const sampleDates = [
-      todayStr, todayStr, todayStr, todayStr, todayStr, todayStr,
-      '2026-10-25', '2026-10-25', '2026-10-25',
-      '2026-10-24', '2026-10-24',
-      '2026-10-23', '2026-10-22', '2026-10-21',
-      '2026-10-20', '2026-10-18', '2026-10-15',
-      '2026-10-10', '2026-10-05', '2026-10-01',
-      '2026-09-28', '2026-09-20', '2026-09-10',
-      '2026-08-25', '2026-08-15', '2026-07-20',
-    ];
-
-    const sampleDevices = [
-      { type: 'iPhone 15 Pro (iOS Safari)', lang: 'vi', ip: '113.161.45.***' },
-      { type: 'Samsung Galaxy S24 (Android Chrome)', lang: 'vi', ip: '14.169.12.***' },
-      { type: 'iPad Air 5 (WebKit)', lang: 'en', ip: '42.112.88.***' },
-      { type: 'Xiaomi 13 (Android Chrome)', lang: 'zh', ip: '118.69.102.***' },
-      { type: 'MacBook Pro M3 (macOS Safari)', lang: 'vi', ip: '171.244.50.***' },
-      { type: 'Google Pixel 8 (Android Chrome)', lang: 'ja', ip: '125.235.14.***' },
-      { type: 'iPhone 14 (iOS Safari)', lang: 'ko', ip: '27.72.61.***' },
-      { type: 'OPPO Reno 11 (Android Chrome)', lang: 'fr', ip: '115.79.23.***' },
-      { type: 'Windows 11 (Google Chrome)', lang: 'vi', ip: '1.53.180.***' },
-      { type: 'iPhone 13 (iOS Safari)', lang: 'th', ip: '113.172.90.***' },
-    ];
-
-    sampleDates.forEach((d, idx) => {
-      const dev = sampleDevices[idx % sampleDevices.length];
-      const hash = `fp_${(idx + 1).toString().padStart(3, '0')}_${Math.sin((idx + 1) * 9).toString(36).slice(2, 8)}_vnqt`;
-      const key = `${hash}_${d}`;
-      const accessCount = (idx % 3) + 1;
-      const rec: DeviceAccessRecord = {
-        id: `dev-${idx + 1}`,
-        fingerprintHash: hash,
-        shortId: `DEV-${hash.slice(3, 9).toUpperCase()}`,
-        dateStr: d,
-        firstAccessAt: `${d}T0${(idx % 8) + 1}:15:00.000Z`,
-        lastAccessAt: `${d}T${(idx % 10) + 9}:45:00.000Z`,
-        accessCountToday: accessCount,
-        language: dev.lang,
-        deviceType: dev.type,
-        ipHash: dev.ip,
-      };
-      this.dailyDeviceAccess.set(key, rec);
-      this.activeVisitorHashes.add(hash);
-    });
   }
 
   // --- Campuses ---
@@ -569,33 +523,41 @@ class MongoDatabaseEngine {
   }
 
   public getStats(): PilgrimageStats {
-    const topLanguages = [
-      { language: 'vi', count: 180 },
-      { language: 'en', count: 64 },
-      { language: 'zh', count: 28 },
-      { language: 'ja', count: 19 },
-      { language: 'ko', count: 12 },
-    ];
+    const langMap = new Map<string, number>();
+    for (const rec of this.dailyDeviceAccess.values()) {
+      const l = rec.language || 'vi';
+      langMap.set(l, (langMap.get(l) || 0) + 1);
+    }
+    const topLanguages = Array.from(langMap.entries())
+      .map(([language, count]) => ({ language, count }))
+      .sort((a, b) => b.count - a.count);
+
+    if (topLanguages.length === 0) {
+      topLanguages.push({ language: 'vi', count: 1 });
+    }
 
     const hourlyActivity = Array.from({ length: 24 }, (_, h) => ({
       hour: h,
-      count: h >= 6 && h <= 18 ? Math.floor(Math.sin(((h - 6) / 12) * Math.PI) * 25) + 3 : 1,
+      count: 0,
     }));
 
     const topPois = Array.from(this.pois.values()).map((p) => {
-      const viTrans = this.translations.get(`${p.poi_id}_vi`);
+      const viTrans = this.translations.get(p.poi_id + "_vi");
       return {
         poiId: p.poi_id,
         title: viTrans ? viTrans.title : p.code,
-        count: Math.floor(Math.random() * 20) + 15,
+        count: 0,
       };
     });
 
+    const realCount = this.dailyDeviceAccess.size;
+    const realUnique = this.activeVisitorHashes.size;
+
     return {
-      todayTotal: this.totalStarts,
-      todayUniquePilgrims: Math.max(96, this.activeVisitorHashes.size),
-      allTimeTotal: this.totalStarts + 520,
-      allTimeUniquePilgrims: Math.max(450, this.activeVisitorHashes.size + 350),
+      todayTotal: this.totalStarts || realCount,
+      todayUniquePilgrims: realUnique,
+      allTimeTotal: realCount,
+      allTimeUniquePilgrims: realUnique,
       topLanguages,
       hourlyActivity,
       topPois,
