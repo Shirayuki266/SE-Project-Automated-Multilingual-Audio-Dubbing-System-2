@@ -17,6 +17,9 @@ async function startServer() {
   // API Routes (3-Tier architecture: Controllers -> Services -> Repositories)
   app.use('/api', apiRouter);
 
+  // Serve static MP3 narration audio files
+  app.use('/audio', express.static(path.resolve(__dirname, 'public/audio')));
+
   // Database offline error middleware fallback
   app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
     if (

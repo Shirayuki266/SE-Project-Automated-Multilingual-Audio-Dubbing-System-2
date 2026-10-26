@@ -51,6 +51,7 @@ import {
   Info,
 } from 'lucide-react';
 import { calculateHaversineDistance } from './utils/geo.js';
+import { getBrowserFingerprint } from './utils/fingerprint.js';
 
 export default function App() {
   const [pois, setPois] = useState<RichPOI[]>([]);
@@ -111,14 +112,46 @@ export default function App() {
 
   const t = translations[currentLang];
 
-  // Check URL query parameters: admin portal is isolated from normal users
-  // Only accessible if user enters '?admin=true' or '?admin=login' in URL
+  // Check URL query parameters & hash: support both direct link and browser back/forward navigation
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('admin') === 'true' || params.get('admin') === 'login') {
-      setShowAdminPortal(true);
-    }
+    const syncViewFromUrl = () => {
+      const params = new URLSearchParams(window.location.search);
+      const isAdminRequested =
+        params.get('admin') === 'true' ||
+        params.get('admin') === 'login' ||
+        params.get('view') === 'admin' ||
+        window.location.hash === '#admin';
+      setShowAdminPortal(isAdminRequested);
+    };
+
+    syncViewFromUrl();
+    window.addEventListener('popstate', syncViewFromUrl);
+    window.addEventListener('hashchange', syncViewFromUrl);
+    return () => {
+      window.removeEventListener('popstate', syncViewFromUrl);
+      window.removeEventListener('hashchange', syncViewFromUrl);
+    };
   }, []);
+
+  const handleOpenAdmin = () => {
+    setShowAdminPortal(true);
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set('view', 'admin');
+      window.history.pushState({ view: 'admin' }, '', url.toString());
+    } catch {}
+  };
+
+  const handleCloseAdmin = () => {
+    setShowAdminPortal(false);
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('admin');
+      url.searchParams.delete('view');
+      const cleanPath = url.pathname + (url.search ? url.search : '');
+      window.history.pushState({ view: 'user' }, '', cleanPath);
+    } catch {}
+  };
 
   // Fetch POIs from backend API
   const fetchPOIs = async () => {
@@ -178,6 +211,34 @@ export default function App() {
     fetchPOIs();
     fetchVisitorStats();
     fetchDefaultVoice();
+
+    // Check in device fingerprint for strict daily deduplication & MongoDB real_devices table
+    getBrowserFingerprint().then((fp) => {
+      fetch('/api/analytics/device-checkin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fingerprintHash: fp, language: currentLang }),
+      })
+        .then((r) => r.json())
+        .then((res) => {
+          if (res.success && res.data) {
+            setTodayStartsCount(res.data.todayUniqueDevices || 142);
+          }
+        })
+        .catch(() => {});
+
+      // Ghi nhận thiết bị thực tế vào bảng MongoDB "real_devices" (Không tạo ảo)
+      fetch('/api/real-devices/checkin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          deviceId: fp,
+          screenResolution: typeof window !== 'undefined' ? `${window.screen.width}x${window.screen.height}` : undefined,
+          language: typeof navigator !== 'undefined' ? navigator.language : currentLang,
+          timezone: typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : 'Asia/Ho_Chi_Minh',
+        }),
+      }).catch(() => {});
+    });
   }, []);
 
   // One-time User Gesture Autoplay Primer: unlocks mobile audio hardware session on first touch/click
@@ -370,16 +431,7 @@ export default function App() {
       <AdminPortal
         pois={pois}
         currentLang={currentLang}
-        onClose={() => {
-          setShowAdminPortal(false);
-          try {
-            const url = new URL(window.location.href);
-            if (url.searchParams.has('admin')) {
-              url.searchParams.delete('admin');
-              window.history.replaceState({}, '', url.pathname + (url.search ? url.search : ''));
-            }
-          } catch {}
-        }}
+        onClose={handleCloseAdmin}
         onRefreshPOIs={fetchPOIs}
       />
     );
@@ -395,7 +447,7 @@ export default function App() {
         onOpenQRScanner={() => setShowQRScanner(true)}
         onOpenVoiceSelector={() => setShowVoiceModal(true)}
         onResetWelcome={() => setShowWelcome(true)}
-        onOpenAdmin={() => setShowAdminPortal(true)}
+        onOpenAdmin={handleOpenAdmin}
         isAudioPlaying={isAudioPlaying}
         onStopAudio={() => speechEngine.stop()}
       />
@@ -949,12 +1001,12 @@ export default function App() {
         {/* Footer with Clear Admin Portal Access */}
         <footer className="pt-6 pb-2 text-center border-t border-[#e2eae4]/80 space-y-2">
           <button
-            onClick={() => setShowAdminPortal(true)}
-            className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white hover:bg-amber-50 border border-[#d6e7da] hover:border-amber-400 text-stone-700 hover:text-amber-900 text-xs font-semibold shadow-xs transition-all active:scale-95"
+            onClick={handleOpenAdmin}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white hover:bg-amber-50 border border-amber-300 text-stone-700 hover:text-amber-900 text-xs font-bold shadow-xs hover:shadow-md transition-all active:scale-95 cursor-pointer"
             title="Mở cổng đăng nhập Quản trị viên (Admin Portal)"
           >
-            <Shield className="w-3.5 h-3.5 text-amber-600" />
-            <span>Cổng Quản Trị Hệ Thống (Admin Portal)</span>
+            <Shield className="w-4 h-4 text-amber-600" />
+            <span>Cổng Quản Trị Hệ Thống (Admin Portal) →</span>
           </button>
           <p className="text-[10px] text-[#7a8e80]">
             Việt Nam Quốc Tự • 244 Ba Tháng Hai, Phường 12, Quận 10, TP.HCM
@@ -1058,12 +1110,22 @@ export default function App() {
         {/* Tab 3: Bản đồ chi tiết */}
         <button
           onClick={() => setMobileTab('map')}
-          className={`flex flex-col items-center gap-0.5 py-1 px-4 rounded-2xl transition-colors ${
+          className={`flex flex-col items-center gap-0.5 py-1 px-3 rounded-2xl transition-colors ${
             mobileTab === 'map' ? 'text-[#2d5a37] font-bold' : 'text-[#7a8e80] hover:text-[#19231b]'
           }`}
         >
           <MapIcon className="w-5 h-5" />
           <span className="text-[10px]">{t.tabMap}</span>
+        </button>
+
+        {/* Tab 4: Cổng Quản trị */}
+        <button
+          onClick={handleOpenAdmin}
+          className="flex flex-col items-center gap-0.5 py-1 px-3 rounded-2xl text-amber-800 hover:text-amber-950 transition-colors"
+          title="Chuyển sang Cổng Quản Trị Hệ Thống (Admin Portal)"
+        >
+          <Shield className="w-5 h-5 text-amber-700" />
+          <span className="text-[10px] font-bold">Quản Trị</span>
         </button>
       </nav>
 
@@ -1075,6 +1137,7 @@ export default function App() {
             setShowWelcome(false);
             fetchVisitorStats();
           }}
+          onOpenAdmin={handleOpenAdmin}
           todayStartsCount={todayStartsCount}
           uniquePilgrimsCount={uniquePilgrimsCount}
         />
