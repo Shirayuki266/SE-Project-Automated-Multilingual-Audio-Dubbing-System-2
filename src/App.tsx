@@ -76,6 +76,7 @@ export default function App() {
   // POI Detail Bottom Drawer state
   const [selectedDetailPoi, setSelectedDetailPoi] = useState<RichPOI | null>(null);
   const [isDetailDrawerOpen, setIsDetailDrawerOpen] = useState<boolean>(false);
+  const [playingPoiId, setPlayingPoiId] = useState<string | null>(null);
 
   // 3 Primary Mobile Tabs matching the reference image layout:
   // 'explore' (Screen 1: Home / Inspiring Destinations)
@@ -231,6 +232,7 @@ export default function App() {
       setIsAudioPaused(state.isPaused);
       setAudioElapsed(state.elapsedSeconds);
       setAudioDuration(state.duration);
+      setPlayingPoiId(state.currentPoiId || null);
       if (state.activeLayer) setActiveAudioLayer(state.activeLayer);
       if (state.layerName) setActiveLayerName(state.layerName);
       if (state.status) setAudioStatus(state.status);
@@ -321,8 +323,11 @@ export default function App() {
     return 'unvisited';
   };
 
-  // Open POI Detail Drawer
+  // Open POI Detail Drawer (Dừng audio cũ nếu chuyển sang xem điểm POI khác)
   const handleOpenDetail = (poi: RichPOI) => {
+    if (playingPoiId && playingPoiId !== poi.poi_id) {
+      speechEngine.stop();
+    }
     setSelectedDetailPoi(poi);
     setActivePOI(poi);
     setIsDetailDrawerOpen(true);
@@ -976,14 +981,22 @@ export default function App() {
       <AudioPlayerBar
         currentPOI={activePOI}
         currentLang={currentLang}
-        isPlaying={isAudioPlaying}
-        isPaused={isAudioPaused}
+        isPlaying={isAudioPlaying && playingPoiId === activePOI?.poi_id}
+        isPaused={isAudioPaused && playingPoiId === activePOI?.poi_id}
         elapsedSeconds={audioElapsed}
         duration={audioDuration}
         visitStatus={activePOI ? getVisitStatus(activePOI.poi_id) : 'viewing'}
-        onPlay={(p) => handlePlayPOI(p, currentLang)}
+        onPlay={(p) => handlePlayPOI(p || activePOI, currentLang)}
         onPause={() => speechEngine.pause()}
-        onResume={() => speechEngine.resume()}
+        onResume={() => {
+          if (activePOI) {
+            if (playingPoiId === activePOI.poi_id) {
+              speechEngine.resume();
+            } else {
+              handlePlayPOI(activePOI, currentLang);
+            }
+          }
+        }}
         onStop={() => speechEngine.stop()}
         onRewind={(sec) => speechEngine.rewind(sec || 10)}
         onForward={(sec) => speechEngine.forward(sec || 10)}
@@ -1004,36 +1017,43 @@ export default function App() {
       />
 
       {/* POI Detailed Bottom Drawer with Swipe-Down Gesture */}
-      <POIDetailDrawer
-        poi={selectedDetailPoi || activePOI}
-        isOpen={isDetailDrawerOpen}
-        onClose={() => setIsDetailDrawerOpen(false)}
-        currentLang={currentLang}
-        onLanguageChange={handleLanguageChange}
-        visitStatus={
-          selectedDetailPoi
-            ? getVisitStatus(selectedDetailPoi.poi_id)
-            : activePOI
-            ? getVisitStatus(activePOI.poi_id)
-            : 'unvisited'
-        }
-        isPlaying={isAudioPlaying && activePOI?.poi_id === (selectedDetailPoi?.poi_id || activePOI?.poi_id)}
-        isPaused={isAudioPaused && activePOI?.poi_id === (selectedDetailPoi?.poi_id || activePOI?.poi_id)}
-        elapsedSeconds={audioElapsed}
-        duration={audioDuration}
-        onPlay={() => {
-          const target = selectedDetailPoi || activePOI;
-          if (target) handlePlayPOI(target, currentLang);
-        }}
-        onPause={() => speechEngine.pause()}
-        onResume={() => speechEngine.resume()}
-        onStop={() => speechEngine.stop()}
-        onRewind={(sec) => speechEngine.rewind(sec || 10)}
-        onForward={(sec) => speechEngine.forward(sec || 10)}
-        onSeek={(sec) => speechEngine.seekTo(sec)}
-        onSetRate={(rate) => speechEngine.setRate(rate)}
-        onOpenVoiceSelector={() => setShowVoiceModal(true)}
-      />
+      {(() => {
+        const drawerPoi = selectedDetailPoi || activePOI;
+        const isDrawerPoiActive = Boolean(drawerPoi && playingPoiId === drawerPoi.poi_id);
+        return (
+          <POIDetailDrawer
+            poi={drawerPoi}
+            isOpen={isDetailDrawerOpen}
+            onClose={() => setIsDetailDrawerOpen(false)}
+            currentLang={currentLang}
+            onLanguageChange={handleLanguageChange}
+            visitStatus={drawerPoi ? getVisitStatus(drawerPoi.poi_id) : 'unvisited'}
+            isPlaying={isAudioPlaying && isDrawerPoiActive}
+            isPaused={isAudioPaused && isDrawerPoiActive}
+            elapsedSeconds={audioElapsed}
+            duration={audioDuration}
+            onPlay={() => {
+              if (drawerPoi) handlePlayPOI(drawerPoi, currentLang);
+            }}
+            onPause={() => speechEngine.pause()}
+            onResume={() => {
+              if (drawerPoi) {
+                if (isDrawerPoiActive) {
+                  speechEngine.resume();
+                } else {
+                  handlePlayPOI(drawerPoi, currentLang);
+                }
+              }
+            }}
+            onStop={() => speechEngine.stop()}
+            onRewind={(sec) => speechEngine.rewind(sec || 10)}
+            onForward={(sec) => speechEngine.forward(sec || 10)}
+            onSeek={(sec) => speechEngine.seekTo(sec)}
+            onSetRate={(rate) => speechEngine.setRate(rate)}
+            onOpenVoiceSelector={() => setShowVoiceModal(true)}
+          />
+        );
+      })()}
 
       {/* BOTTOM NAVIGATION BAR (Docks cleanly at bottom on PC & Mobile with iOS Safe Area support) */}
       <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 border-t border-[#e2eae4] backdrop-blur-xl py-2 px-3 pb-[calc(0.5rem+env(safe-area-inset-bottom))] flex items-center justify-around shadow-[0_-4px_20px_rgba(0,0,0,0.04)]">

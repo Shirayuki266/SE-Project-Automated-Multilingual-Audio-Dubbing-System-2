@@ -349,17 +349,23 @@ function buildGeofenceGeoJSON(poisList: RichPOI[], activeId: string | null): { a
     const mapTilerKey = import.meta.env.VITE_MAPTILER_KEY as string | undefined;
     const hasMapTiler = Boolean(mapTilerKey && mapTilerKey.trim().length > 0);
 
-    const rasterUrl = hasMapTiler
-      ? type === 'satellite'
-        ? `https://api.maptiler.com/maps/hybrid/256/{z}/{x}/{y}.jpg?key=${mapTilerKey}`
-        : isNight
-        ? `https://api.maptiler.com/maps/streets-v2-dark/256/{z}/{x}/{y}.png?key=${mapTilerKey}`
-        : `https://api.maptiler.com/maps/streets-v2/256/{z}/{x}/{y}.png?key=${mapTilerKey}`
+    const tileUrls: string[] = hasMapTiler
+      ? [
+          type === 'satellite'
+            ? `https://api.maptiler.com/maps/hybrid/256/{z}/{x}/{y}.jpg?key=${mapTilerKey}`
+            : isNight
+            ? `https://api.maptiler.com/maps/streets-v2-dark/256/{z}/{x}/{y}.png?key=${mapTilerKey}`
+            : `https://api.maptiler.com/maps/streets-v2/256/{z}/{x}/{y}.png?key=${mapTilerKey}`,
+        ]
       : type === 'satellite'
-      ? 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+      ? ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}']
       : isNight
-      ? 'https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png'
-      : 'https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png';
+      ? ['https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}']
+      : [
+          'https://a.tile.openstreetmap.org/{z}/{x}/{y}.png',
+          'https://b.tile.openstreetmap.org/{z}/{x}/{y}.png',
+          'https://c.tile.openstreetmap.org/{z}/{x}/{y}.png',
+        ];
 
     // Actual native maxzoom of tile providers so MapLibre overzooms cleanly up to z22 without 404/blank tiles
     const nativeMaxZoom = type === 'satellite' ? (hasMapTiler ? 19 : 18) : 19;
@@ -367,12 +373,12 @@ function buildGeofenceGeoJSON(poisList: RichPOI[], activeId: string | null): { a
     const sources: StyleSpecification['sources'] = {
       'base-tiles': {
         type: 'raster',
-        tiles: [rasterUrl],
+        tiles: tileUrls,
         tileSize: 256,
         maxzoom: nativeMaxZoom,
         attribution: hasMapTiler
           ? '&copy; Việt Nam Quốc Tự · MapTiler · OpenStreetMap'
-          : '&copy; Việt Nam Quốc Tự · OpenStreetMap · CARTO · Esri',
+          : '&copy; Việt Nam Quốc Tự · OpenStreetMap · Esri (Miễn phí 100%)',
       },
       'buildings-3d-source': {
         type: 'geojson',

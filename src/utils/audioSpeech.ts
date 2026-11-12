@@ -466,6 +466,10 @@ export class AudioSpeechEngine {
     }
   }
 
+  public getCurrentPoiId(): string | undefined {
+    return this.currentPoiId;
+  }
+
   public getAvailableSystemVoices(): SpeechSynthesisVoice[] {
     if (!this.synth) return [];
     return this.synth.getVoices();
@@ -1390,6 +1394,8 @@ export class AudioSpeechEngine {
     this.currentUtterance = null;
     this.textChunks = [];
     this.currentChunkIndex = 0;
+    this.currentPoiId = undefined;
+    this.currentTitle = '';
   }
 }
 
