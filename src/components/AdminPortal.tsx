@@ -1574,7 +1574,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                         <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
                         <span className="font-medium text-[#19231b]">Bản Đồ Trực Tuyến</span>
                       </div>
-                      <span className="text-[11px] font-bold text-[#2d5a37]">Carto & Esri</span>
+                      <span className="text-[11px] font-bold text-[#2d5a37]">OpenStreetMap & Esri</span>
                     </div>
                   </div>
 
