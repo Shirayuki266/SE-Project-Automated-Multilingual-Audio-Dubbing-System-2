@@ -14,10 +14,10 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js 20.x
+      - name: Setup Node.js 22.x
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'npm'
           cache-dependency-path: package-lock.json
 
@@ -51,8 +51,14 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Build Docker Image
-        run: |
-          docker build -t vnqt-audio-guide:latest .
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: vnqt-audio-guide:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   production-verify:
     name: Production Verification & Deployment
@@ -63,10 +69,10 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js 20.x
+      - name: Setup Node.js 22.x
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'npm'
           cache-dependency-path: package-lock.json
 
