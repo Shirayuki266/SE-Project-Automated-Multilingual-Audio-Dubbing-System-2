@@ -84,12 +84,22 @@ assert.strictEqual(p2.isOutlierFiltered, true, 'Impossible jump with low accurac
 
 // 6. Python Microservice & Bell Audio Synthesis Test
 const pythonScript = path.resolve(process.cwd(), 'python/spatial_ai_service.py');
-const { stdout: pyHealthOut } = await execFileAsync('python3', [pythonScript, 'health']);
+const pyCmd = process.platform === 'win32' ? 'python' : 'python3';
+let pyHealthOut: string;
+try {
+  const res = await execFileAsync(pyCmd, [pythonScript, 'health']);
+  pyHealthOut = res.stdout;
+} catch {
+  const fallbackCmd = pyCmd === 'python' ? 'python3' : 'python';
+  const res = await execFileAsync(fallbackCmd, [pythonScript, 'health']);
+  pyHealthOut = res.stdout;
+}
 const pyHealth = JSON.parse(pyHealthOut);
 assert.strictEqual(pyHealth.status, 'healthy');
 assert.strictEqual(pyHealth.runtime, 'python-3.10');
 
-const { stdout: pyBellOut } = await execFileAsync('python3', [pythonScript, 'bell-audio', '220']);
+const activePyCmd = pyHealthOut ? pyCmd : 'python3';
+const { stdout: pyBellOut } = await execFileAsync(activePyCmd, [pythonScript, 'bell-audio', '220']);
 const pyBell = JSON.parse(pyBellOut);
 assert.strictEqual(pyBell.success, true);
 assert(pyBell.dataUrl.startsWith('data:audio/wav;base64,'), 'Should produce valid WAV audio data URL');

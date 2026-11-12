@@ -86,6 +86,136 @@ class MongoDatabaseEngine {
     this.seedDatabase();
   }
 
+  public async syncWithMongoDB(): Promise<void> {
+    if (!mongoManager.isConnectedToRemote) {
+      await mongoManager.initClient();
+    }
+    if (!mongoManager.isConnectedToRemote) {
+      return;
+    }
+
+    try {
+      const colCampuses = mongoManager.getCollection<Campus>('campuses');
+      const colPois = mongoManager.getCollection<POIEntity>('pois');
+      const colTrans = mongoManager.getCollection<POITranslation>('poi_translations');
+      const colMedia = mongoManager.getCollection<POIMedia>('poi_media');
+      const colAdmins = mongoManager.getCollection<AdminUser>('admin_users');
+      const colRealDevices = mongoManager.getCollection<RealDeviceEntity>('real_devices');
+      const colDeviceAccess = mongoManager.getCollection<any>('device_access');
+
+      if (!colPois) return;
+
+      const remotePoiCount = await colPois.countDocuments();
+      if (remotePoiCount === 0) {
+        console.log('[MongoDB] Remote database is empty. Auto-seeding initial collections to MongoDB Atlas...');
+        if (colCampuses) {
+          await colCampuses.deleteMany({});
+          await colCampuses.insertOne(seedCampus);
+        }
+        if (colAdmins) {
+          const seedAdmin: AdminUser = {
+            user_id: 'adm-001',
+            username: 'admin',
+            password_hash: hashPassword('vnqt@2026'),
+            full_name: 'Ban Trị Sự Việt Nam Quốc Tự',
+            created_at: new Date().toISOString(),
+          };
+          await colAdmins.deleteMany({});
+          await colAdmins.insertOne(seedAdmin);
+        }
+        const poiDocs: POIEntity[] = [];
+        const transDocs: POITranslation[] = [];
+        const mediaDocs: POIMedia[] = [];
+
+        rawSeedPOIs.forEach((item) => {
+          poiDocs.push({
+            ...item.poi,
+            location: {
+              type: 'Point',
+              coordinates: [item.poi.longitude, item.poi.latitude],
+            },
+          });
+          Object.entries(item.translations).forEach(([lang, data]) => {
+            transDocs.push({
+              translation_id: `trans-${item.poi.poi_id}-${lang}`,
+              poi_id: item.poi.poi_id,
+              language_code: lang,
+              title: data.title,
+              introduction: data.intro || (data.desc.length > 100 ? data.desc.slice(0, data.desc.indexOf('.') > 0 ? data.desc.indexOf('.') + 1 : 100) : data.desc),
+              description: data.desc,
+              audio_url: data.audioUrl || undefined,
+              is_ai_generated: false,
+            });
+          });
+          item.media.forEach((m, mIdx) => {
+            mediaDocs.push({
+              media_id: `media-${item.poi.poi_id}-${mIdx + 1}`,
+              poi_id: item.poi.poi_id,
+              image_url: m.url,
+              caption_vi: m.caption_vi,
+              caption_en: m.caption_en,
+              display_order: mIdx + 1,
+            });
+          });
+        });
+
+        if (poiDocs.length > 0) await colPois.insertMany(poiDocs);
+        if (transDocs.length > 0 && colTrans) await colTrans.insertMany(transDocs);
+        if (mediaDocs.length > 0 && colMedia) await colMedia.insertMany(mediaDocs);
+        console.log(`[MongoDB] Initial dataset (${poiDocs.length} POIs) successfully seeded to MongoDB Atlas.`);
+      }
+
+      // Sync data from remote MongoDB
+      if (colCampuses) {
+        const remoteCampuses = await colCampuses.find({}).toArray();
+        if (remoteCampuses.length > 0) {
+          this.campuses.clear();
+          remoteCampuses.forEach((c) => this.campuses.set(c.campus_id, c));
+        }
+      }
+      const remotePois = await colPois.find({}).toArray();
+      if (remotePois.length > 0) {
+        this.pois.clear();
+        remotePois.forEach((p) => this.pois.set(p.poi_id, p));
+      }
+      if (colTrans) {
+        const remoteTrans = await colTrans.find({}).toArray();
+        if (remoteTrans.length > 0) {
+          this.translations.clear();
+          remoteTrans.forEach((t) => this.translations.set(`${t.poi_id}_${t.language_code.toLowerCase()}`, t));
+        }
+      }
+      if (colMedia) {
+        const remoteMedia = await colMedia.find({}).toArray();
+        if (remoteMedia.length > 0) {
+          this.media.clear();
+          remoteMedia.forEach((m) => this.media.set(m.media_id, m));
+        }
+      }
+      if (colAdmins) {
+        const remoteAdmins = await colAdmins.find({}).toArray();
+        if (remoteAdmins.length > 0) {
+          this.adminUsers.clear();
+          remoteAdmins.forEach((a) => this.adminUsers.set(a.user_id, a));
+        }
+      }
+      if (colRealDevices) {
+        const remoteDevices = await colRealDevices.find({}).toArray();
+        remoteDevices.forEach((d) => this.realDevices.set(d.device_id, d));
+      }
+      if (colDeviceAccess) {
+        const remoteAccess = await colDeviceAccess.find({}).toArray();
+        remoteAccess.forEach((a: any) => {
+          this.dailyDeviceAccess.set(a.key, a);
+          this.activeVisitorHashes.add(a.fingerprintHash);
+        });
+      }
+      console.log(`[MongoDB] Operational sync complete (${this.pois.size} POIs, ${this.realDevices.size} devices active from MongoDB).`);
+    } catch (err: any) {
+      console.warn('[MongoDB] Sync notice:', err.message);
+    }
+  }
+
   private seedDatabase() {
     // 1. Campus
     this.campuses.set(seedCampus.campus_id, seedCampus);
@@ -240,10 +370,16 @@ class MongoDatabaseEngine {
     };
     this.pois.set(poi_id, newPoi);
 
+    if (mongoManager.isConnectedToRemote) {
+      mongoManager.getCollection<POIEntity>('pois')?.insertOne(newPoi).catch((e) => {
+        console.warn('[MongoDB] createPOI insert notice:', e.message);
+      });
+    }
+
     // Initial translation (e.g. Vietnamese)
     if (initialTranslation) {
       const transId = `trans-${poi_id}-${initialTranslation.lang || 'vi'}`;
-      this.translations.set(`${poi_id}_${initialTranslation.lang || 'vi'}`, {
+      const transObj: POITranslation = {
         translation_id: transId,
         poi_id,
         language_code: initialTranslation.lang || 'vi',
@@ -252,20 +388,28 @@ class MongoDatabaseEngine {
         description: initialTranslation.desc,
         audio_url: undefined,
         is_ai_generated: false,
-      });
+      };
+      this.translations.set(`${poi_id}_${initialTranslation.lang || 'vi'}`, transObj);
+      if (mongoManager.isConnectedToRemote) {
+        mongoManager.getCollection<POITranslation>('poi_translations')?.insertOne(transObj).catch(() => {});
+      }
     }
 
     // Initial Media
     if (imageUrl) {
       const mediaId = `media-${poi_id}-1`;
-      this.media.set(mediaId, {
+      const mediaObj: POIMedia = {
         media_id: mediaId,
         poi_id,
         image_url: imageUrl,
         caption_vi: initialTranslation?.title || 'Hình ảnh điểm chiêm bái',
         caption_en: 'Point of interest view',
         display_order: 1,
-      });
+      };
+      this.media.set(mediaId, mediaObj);
+      if (mongoManager.isConnectedToRemote) {
+        mongoManager.getCollection<POIMedia>('poi_media')?.insertOne(mediaObj).catch(() => {});
+      }
     }
 
     return this.assembleRichPOI(newPoi);
@@ -289,6 +433,13 @@ class MongoDatabaseEngine {
       },
     };
     this.pois.set(poi_id, updated);
+
+    if (mongoManager.isConnectedToRemote) {
+      mongoManager.getCollection<POIEntity>('pois')?.updateOne({ poi_id }, { $set: updated }).catch((e) => {
+        console.warn('[MongoDB] updatePOI update notice:', e.message);
+      });
+    }
+
     return this.assembleRichPOI(updated);
   }
 
@@ -300,6 +451,13 @@ class MongoDatabaseEngine {
     for (const [key, m] of this.media.entries()) {
       if (m.poi_id === poi_id) this.media.delete(key);
     }
+
+    if (mongoManager.isConnectedToRemote) {
+      mongoManager.getCollection<POIEntity>('pois')?.deleteOne({ poi_id }).catch(() => {});
+      mongoManager.getCollection<POITranslation>('poi_translations')?.deleteMany({ poi_id }).catch(() => {});
+      mongoManager.getCollection<POIMedia>('poi_media')?.deleteMany({ poi_id }).catch(() => {});
+    }
+
     return this.pois.delete(poi_id);
   }
 
@@ -307,6 +465,14 @@ class MongoDatabaseEngine {
   public saveTranslation(trans: POITranslation): void {
     const key = `${trans.poi_id}_${trans.language_code.toLowerCase()}`;
     this.translations.set(key, trans);
+
+    if (mongoManager.isConnectedToRemote) {
+      mongoManager.getCollection<POITranslation>('poi_translations')?.updateOne(
+        { poi_id: trans.poi_id, language_code: trans.language_code.toLowerCase() },
+        { $set: trans },
+        { upsert: true }
+      ).catch(() => {});
+    }
   }
 
   public getTranslation(poi_id: string, lang: string): POITranslation | undefined {
@@ -318,10 +484,18 @@ class MongoDatabaseEngine {
     const media_id = 'media-' + Date.now().toString(36);
     const record: POIMedia = { ...m, media_id };
     this.media.set(media_id, record);
+
+    if (mongoManager.isConnectedToRemote) {
+      mongoManager.getCollection<POIMedia>('poi_media')?.insertOne(record).catch(() => {});
+    }
+
     return record;
   }
 
   public deleteMedia(media_id: string): boolean {
+    if (mongoManager.isConnectedToRemote) {
+      mongoManager.getCollection<POIMedia>('poi_media')?.deleteOne({ media_id }).catch(() => {});
+    }
     return this.media.delete(media_id);
   }
 
@@ -390,6 +564,18 @@ class MongoDatabaseEngine {
       this.dailyDeviceAccess.set(key, newRecord);
       this.activeVisitorHashes.add(fingerprintHash);
       this.totalStarts += 1;
+    }
+
+    // Sync check-in record to MongoDB device_access collection
+    if (mongoManager.isConnectedToRemote) {
+      const rec = this.dailyDeviceAccess.get(key);
+      if (rec) {
+        mongoManager.getCollection('device_access')?.updateOne(
+          { key },
+          { $set: { ...rec, key } },
+          { upsert: true }
+        ).catch(() => {});
+      }
     }
 
     // Count distinct unique devices for today

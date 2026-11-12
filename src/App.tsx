@@ -1035,12 +1035,12 @@ export default function App() {
         onOpenVoiceSelector={() => setShowVoiceModal(true)}
       />
 
-      {/* MOBILE BOTTOM NAVIGATION BAR (No admin link - users cannot navigate to admin) */}
-      <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 border-t border-[#e2eae4] backdrop-blur-xl py-2 px-3 flex items-center justify-around shadow-[0_-4px_20px_rgba(0,0,0,0.04)]">
+      {/* BOTTOM NAVIGATION BAR (Docks cleanly at bottom on PC & Mobile with iOS Safe Area support) */}
+      <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 border-t border-[#e2eae4] backdrop-blur-xl py-2 px-3 pb-[calc(0.5rem+env(safe-area-inset-bottom))] flex items-center justify-around shadow-[0_-4px_20px_rgba(0,0,0,0.04)]">
         {/* Tab 1: Khám phá */}
         <button
           onClick={() => setMobileTab('explore')}
-          className={`flex flex-col items-center gap-0.5 py-1 px-4 rounded-2xl transition-colors ${
+          className={`flex flex-col items-center gap-0.5 py-1 px-4 rounded-2xl transition-colors cursor-pointer ${
             mobileTab === 'explore' ? 'text-[#2d5a37] font-bold' : 'text-[#7a8e80] hover:text-[#19231b]'
           }`}
         >
@@ -1051,7 +1051,7 @@ export default function App() {
         {/* Tab 2: Lộ trình */}
         <button
           onClick={() => setMobileTab('itinerary')}
-          className={`flex flex-col items-center gap-0.5 py-1 px-4 rounded-2xl transition-colors ${
+          className={`flex flex-col items-center gap-0.5 py-1 px-4 rounded-2xl transition-colors cursor-pointer ${
             mobileTab === 'itinerary' ? 'text-[#2d5a37] font-bold' : 'text-[#7a8e80] hover:text-[#19231b]'
           }`}
         >
@@ -1062,7 +1062,7 @@ export default function App() {
         {/* Center Button: Quét QR */}
         <button
           onClick={() => setShowQRScanner(true)}
-          className="flex flex-col items-center gap-0.5 py-1 px-4 rounded-2xl text-[#2d5a37] hover:scale-105 transition-transform"
+          className="flex flex-col items-center gap-0.5 py-1 px-4 rounded-2xl text-[#2d5a37] hover:scale-105 transition-transform cursor-pointer"
           title={t.tabQR}
         >
           <div className="w-7 h-7 rounded-xl bg-[#eef5f0] flex items-center justify-center text-[#2d5a37] shadow-xs">
@@ -1074,7 +1074,7 @@ export default function App() {
         {/* Tab 3: Bản đồ chi tiết */}
         <button
           onClick={() => setMobileTab('map')}
-          className={`flex flex-col items-center gap-0.5 py-1 px-3 rounded-2xl transition-colors ${
+          className={`flex flex-col items-center gap-0.5 py-1 px-3 rounded-2xl transition-colors cursor-pointer ${
             mobileTab === 'map' ? 'text-[#2d5a37] font-bold' : 'text-[#7a8e80] hover:text-[#19231b]'
           }`}
         >
@@ -1088,6 +1088,7 @@ export default function App() {
         pois={pois}
         currentLang={currentLang}
         userLocation={userLocation}
+        isAudioActive={isAudioPlaying || isAudioPaused || Boolean(activePOI)}
         onSelectPOI={(poi, autoPlay) => {
           setActivePOI(poi);
           if (autoPlay) handlePlayPOI(poi);

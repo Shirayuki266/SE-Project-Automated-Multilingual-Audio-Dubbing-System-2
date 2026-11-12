@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { RichPOI } from '../server/types.js';
-import { LanguageCode, AudioPlaybackStatus } from '../utils/audioSpeech.js';
+import { LanguageCode, AudioPlaybackStatus, speechEngine } from '../utils/audioSpeech.js';
 import { translations } from '../translations/index.js';
 import {
   Play,
@@ -72,9 +72,22 @@ export const AudioPlayerBar: React.FC<AudioPlayerBarProps> = ({
   autoplayBlocked = false,
   onRetryAutoplay,
 }) => {
-  const [currentSpeed, setCurrentSpeed] = useState<number>(1.0);
+  const [currentSpeed, setCurrentSpeed] = useState<number>(() => {
+    try {
+      return speechEngine.getRate() || 1.0;
+    } catch {
+      return 1.0;
+    }
+  });
   const [isDismissedByUser, setIsDismissedByUser] = useState<boolean>(false);
   const t = translations[currentLang];
+
+  useEffect(() => {
+    const rate = speechEngine.getRate();
+    if (rate && Number.isFinite(rate)) {
+      setCurrentSpeed(rate);
+    }
+  }, [isPlaying, isPaused]);
 
   if (!currentPOI) return null;
   if (!isPlaying && !isPaused && isDismissedByUser) return null;
@@ -84,12 +97,15 @@ export const AudioPlayerBar: React.FC<AudioPlayerBarProps> = ({
   const poiImage =
     currentPOI.media[0]?.image_url ||
     'https://images.unsplash.com/photo-1544644181-1484b3fdfc62?auto=format&fit=crop&w=400&q=80';
-  const safeDuration = Math.max(1, duration || 45);
-  const progressPercent = Math.min(100, Math.max(0, (elapsedSeconds / safeDuration) * 100));
+  const safeDuration = (duration && Number.isFinite(duration) && duration > 0) ? Math.round(duration) : 45;
+  const safeElapsed = (elapsedSeconds && Number.isFinite(elapsedSeconds) && elapsedSeconds >= 0)
+    ? Math.min(Math.round(elapsedSeconds), safeDuration)
+    : 0;
+  const progressPercent = Math.min(100, Math.max(0, (safeElapsed / safeDuration) * 100));
 
   const cycleSpeed = (e: React.MouseEvent) => {
     e.stopPropagation();
-    const speeds = [0.9, 1.0, 1.1, 1.25];
+    const speeds = [0.75, 1.0, 1.25, 1.5];
     const currentIndex = speeds.indexOf(currentSpeed);
     const nextSpeed = speeds[(currentIndex + 1) % speeds.length];
     setCurrentSpeed(nextSpeed);
@@ -97,6 +113,7 @@ export const AudioPlayerBar: React.FC<AudioPlayerBarProps> = ({
   };
 
   const formatTime = (sec: number) => {
+    if (!Number.isFinite(sec) || isNaN(sec) || sec < 0) return '0:00';
     const m = Math.floor(sec / 60);
     const s = Math.floor(sec % 60);
     return `${m}:${s < 10 ? '0' : ''}${s}`;
@@ -109,14 +126,14 @@ export const AudioPlayerBar: React.FC<AudioPlayerBarProps> = ({
   };
 
   return (
-    <div className="fixed bottom-16 sm:bottom-0 left-0 right-0 z-40 bg-white/98 backdrop-blur-xl border-t border-[#d8e6db] shadow-[0_-8px_30px_rgba(0,0,0,0.08)] transition-all animate-slide-up">
+    <div className="fixed bottom-[58px] sm:bottom-[60px] left-0 right-0 z-45 bg-white/98 backdrop-blur-xl border-t border-[#d8e6db] shadow-[0_-8px_30px_rgba(0,0,0,0.12)] transition-all animate-slide-up">
       {/* Top Interactive Progress Seek Bar */}
       <div className="w-full bg-[#e8efe9] h-2 relative group cursor-pointer">
         <input
           type="range"
           min={0}
           max={safeDuration}
-          value={elapsedSeconds}
+          value={safeElapsed}
           onChange={(e) => onSeek && onSeek(Number(e.target.value))}
           className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
         />
@@ -200,10 +217,10 @@ export const AudioPlayerBar: React.FC<AudioPlayerBarProps> = ({
               title={layerName || 'Kiến trúc âm thanh 3 lớp'}
             >
               {activeLayer === 1
-                ? 'Vòng 1 (File MP3)'
+                ? 'Vòng 1 (TTS Web)'
                 : activeLayer === 2
-                ? 'Vòng 2 (Cloud TTS)'
-                : 'Vòng 3 (Thiết bị)'}
+                ? 'Vòng 2 (File Audio)'
+                : 'Vòng 3 (TTS Chip ĐT)'}
             </span>
           </div>
 
@@ -356,10 +373,10 @@ export const AudioPlayerBar: React.FC<AudioPlayerBarProps> = ({
             <SkipForward className="w-4 h-4" />
           </button>
 
-          {/* Speed Pill (desktop only) */}
+          {/* Speed Pill (Visible on PC and Mobile) */}
           <button
             onClick={cycleSpeed}
-            className="px-2 py-1 rounded-full bg-[#f0f5f1] text-[#2d5a37] text-[10px] font-bold border border-[#e0ebe2] hover:bg-[#e4efe6] transition-colors hidden lg:inline-flex shrink-0"
+            className="px-2 py-1 rounded-full bg-[#f0f5f1] text-[#2d5a37] text-[10px] sm:text-xs font-bold border border-[#d6e7da] hover:bg-[#e4efe6] active:scale-95 transition-all inline-flex items-center justify-center shrink-0"
             title="Tốc độ đọc"
           >
             {currentSpeed}x
