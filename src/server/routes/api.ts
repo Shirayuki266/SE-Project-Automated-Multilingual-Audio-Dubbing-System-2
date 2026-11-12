@@ -3,6 +3,10 @@ import { poiController } from '../controllers/poiController.js';
 import { analyticsController } from '../controllers/analyticsController.js';
 import { authController } from '../controllers/authController.js';
 import { realDeviceController } from '../controllers/realDeviceController.js';
+import { ttsService } from '../services/ttsService.js';
+import { poiService } from '../services/poiService.js';
+import { chatbotService } from '../services/chatbotService.js';
+import { localizationService } from '../services/localizationService.js';
 
 const router = Router();
 
@@ -21,6 +25,7 @@ router.get('/health', (_req, res) => {
     },
   });
 });
+
 
 // Admin Authentication routes
 router.post('/auth/login', (req, res) => authController.login(req, res));
@@ -121,7 +126,110 @@ router.get('/analytics/stats', (req, res) => analyticsController.getStats(req, r
 router.post('/real-devices/checkin', (req, res) => realDeviceController.checkin(req, res));
 router.get('/real-devices', (req, res) => realDeviceController.getRealDevices(req, res));
 router.put('/real-devices/:id/block', (req, res) => realDeviceController.toggleBlock(req, res));
-router.delete('/real-devices/:id', (req, res) => realDeviceController.deleteDevice(req, res));
+// =========================================================================
+// REAL TTS SPEECH SYNTHESIS ROUTES (Gemini 3.8 Flash Lite TTS)
+// =========================================================================
+router.get('/tts/voices', (_req, res) => {
+  res.json({
+    success: true,
+    data: ttsService.getVoices(),
+  });
+});
+
+router.post('/tts/synthesize', async (req, res) => {
+  try {
+    const { text, poiId, lang, voiceName, style } = req.body || {};
+    const result = await ttsService.synthesizeSpeech({
+      text,
+      poiId,
+      lang,
+      voiceName,
+      style,
+    });
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+router.get('/tts/poi/:poiId/:lang', async (req, res) => {
+  try {
+    const { poiId, lang } = req.params;
+    const voiceName = (req.query.voice as string) || 'Kore';
+    const poi = poiService.getPOI(poiId);
+    if (!poi) {
+      return res.status(404).json({ success: false, message: 'POI not found' });
+    }
+    const trans = poi.translations[lang] || poi.translations['vi'] || Object.values(poi.translations)[0];
+    const fullText = [trans.title, trans.introduction, trans.description].filter(Boolean).join('. ');
+    const result = await ttsService.synthesizeSpeech({
+      text: fullText,
+      poiId,
+      lang,
+      voiceName,
+    });
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+// AI CHATBOT & SMART ASSISTANT (Tuệ Đăng - Gemini 3.8 Flash)
+// =========================================================================
+router.post('/chat', async (req, res) => {
+  try {
+    const result = await chatbotService.chat(req.body || {});
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// =========================================================================
+// 1-CLICK AI LOCALIZATION (12 Languages + TTS Audio Batch Pre-generation)
+// =========================================================================
+router.post('/admin/localize-all', async (req, res) => {
+  try {
+    const { poiId, title_vi, intro_vi, description_vi, generateAudio } = req.body || {};
+    if (!poiId || !title_vi || !description_vi) {
+      return res.status(400).json({
+        success: false,
+        message: 'poiId, title_vi và description_vi là bắt buộc.',
+      });
+    }
+    const result = await localizationService.localizePOI({
+      poiId,
+      title_vi,
+      intro_vi,
+      description_vi,
+      generateAudio: generateAudio !== false,
+    });
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+router.post('/pois/:id/localize-all', async (req, res) => {
+  try {
+    const poiId = req.params.id;
+    const { title_vi, intro_vi, description_vi, generateAudio } = req.body || {};
+    const poi = poiService.getPOI(poiId);
+    const resolvedTitle = title_vi || poi?.translations['vi']?.title || poi?.code || '';
+    const resolvedIntro = intro_vi || poi?.translations['vi']?.introduction || '';
+    const resolvedDesc = description_vi || poi?.translations['vi']?.description || '';
+
+    const result = await localizationService.localizePOI({
+      poiId,
+      title_vi: resolvedTitle,
+      intro_vi: resolvedIntro,
+      description_vi: resolvedDesc,
+      generateAudio: generateAudio !== false,
+    });
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
 
 export default router;
 

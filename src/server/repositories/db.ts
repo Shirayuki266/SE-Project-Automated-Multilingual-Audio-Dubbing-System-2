@@ -121,7 +121,7 @@ class MongoDatabaseEngine {
           title: data.title,
           introduction: data.intro || (data.desc.length > 100 ? data.desc.slice(0, data.desc.indexOf('.') > 0 ? data.desc.indexOf('.') + 1 : 100) : data.desc),
           description: data.desc,
-          audio_url: data.audioUrl || `/audio/${item.poi.poi_id}-${lang}.mp3`,
+          audio_url: data.audioUrl || undefined,
           is_ai_generated: false,
         };
         this.translations.set(`${item.poi.poi_id}_${lang}`, transRecord);

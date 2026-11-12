@@ -10,7 +10,8 @@ import { translations } from './translations/index.js';
 import { useGPSTracker } from './hooks/useGPSTracker.js';
 import { Header } from './components/Header.tsx';
 import { WelcomeModal } from './components/WelcomeModal.tsx';
-import { RealCampusMap } from './components/RealCampusMap.tsx';
+import { MapLibre3DCampusMap } from './components/MapLibre3DCampusMap.tsx';
+import { TravelAssistantChatbot } from './components/TravelAssistantChatbot.tsx';
 import { AudioPlayerBar } from './components/AudioPlayerBar.tsx';
 import { POIDetailDrawer } from './components/POIDetailDrawer.tsx';
 import { QRScannerModal } from './components/QRScannerModal.tsx';
@@ -910,8 +911,8 @@ export default function App() {
               </div>
             </div>
 
-            {/* Real Interactive Leaflet Satellite / Street Map */}
-            <RealCampusMap
+            {/* MapLibre GL JS 3D Vector & 4D Day/Night Campus Map */}
+            <MapLibre3DCampusMap
               pois={pois}
               currentLang={currentLang}
               userLocation={userLocation}
@@ -1128,6 +1129,18 @@ export default function App() {
           <span className="text-[10px] font-bold">Quản Trị</span>
         </button>
       </nav>
+
+      {/* Floating Travel Assistant & Navigation Chatbot (Tuệ Đăng) */}
+      <TravelAssistantChatbot
+        pois={pois}
+        currentLang={currentLang}
+        userLocation={userLocation}
+        onSelectPOI={(poi, autoPlay) => {
+          setActivePOI(poi);
+          if (autoPlay) handlePlayPOI(poi);
+          handleOpenDetail(poi);
+        }}
+      />
 
       {/* Welcome Screen with single "Bắt Đầu Chiêm Bái" action */}
       {showWelcome && (

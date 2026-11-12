@@ -132,6 +132,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [stats, setStats] = useState<PilgrimageStats | null>(null);
   const [qrPreviews, setQrPreviews] = useState<Record<string, string>>({});
   const [qrModalPoi, setQrModalPoi] = useState<RichPOI | null>(null);
+  const [isLocalizingAll, setIsLocalizingAll] = useState<boolean>(false);
+  const [localizeProgressMsg, setLocalizeProgressMsg] = useState<string>('');
   const [notificationMsg, setNotificationMsg] = useState<string | null>(null);
   const [mongoStatus, setMongoStatus] = useState<any>(null);
 
@@ -358,14 +360,14 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     });
   }, []);
 
-  // Generate QR codes for all POIs
+  // Generate high-resolution QR codes (>= 512x512) for all POIs
   useEffect(() => {
     pois.forEach((poi) => {
       const targetUrl = `${window.location.origin}/?poi=${encodeURIComponent(poi.code)}`;
       QRCode.toDataURL(targetUrl, {
-        width: 320,
+        width: 600,
         margin: 2,
-        color: { dark: '#2d5a37', light: '#ffffff' },
+        color: { dark: '#1e3d25', light: '#ffffff' },
       }).then((dataUri) => {
         setQrPreviews((prev) => ({ ...prev, [poi.poi_id]: dataUri }));
       });
@@ -709,6 +711,107 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         </html>
       `);
       printWin.document.close();
+    }
+  };
+
+  // Download high-resolution QR Code (.PNG)
+  const handleDownloadQRPNG = (poi: RichPOI) => {
+    const targetUrl = `${window.location.origin}/?poi=${encodeURIComponent(poi.code)}`;
+    QRCode.toDataURL(targetUrl, {
+      width: 1024,
+      margin: 3,
+      color: { dark: '#1e3d25', light: '#ffffff' },
+    }).then((dataUri) => {
+      const link = document.createElement('a');
+      link.download = `QR_${poi.code}_VietnamQuocTu.png`;
+      link.href = dataUri;
+      link.click();
+    });
+  };
+
+  // Download high-resolution QR Code (.JPG) with guaranteed solid white (#FFFFFF) background
+  const handleDownloadQRJPG = (poi: RichPOI) => {
+    const targetUrl = `${window.location.origin}/?poi=${encodeURIComponent(poi.code)}`;
+    QRCode.toDataURL(targetUrl, {
+      width: 1024,
+      margin: 3,
+      color: { dark: '#1e3d25', light: '#ffffff' },
+    }).then((dataUri) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          // Fill pure solid white background #FFFFFF (prevents dark or transparent printing issues)
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0);
+          const jpgUri = canvas.toDataURL('image/jpeg', 0.98);
+          const link = document.createElement('a');
+          link.download = `QR_${poi.code}_VietnamQuocTu.jpg`;
+          link.href = jpgUri;
+          link.click();
+        }
+      };
+      img.src = dataUri;
+    });
+  };
+
+  // 1-Click AI Localization (12 Languages + High Quality MP3 Audio generation)
+  const handleOneClickLocalization = async (
+    targetPoiId?: string,
+    targetTitle?: string,
+    targetIntro?: string,
+    targetDesc?: string
+  ) => {
+    const poiId = targetPoiId || editingPoi?.poi_id || selectedArticlePoiId;
+    const title = targetTitle || formData.title_vi || articleTitle;
+    const intro = targetIntro || formData.intro_vi || articleIntro;
+    const desc = targetDesc || formData.description_vi || articleDesc;
+
+    if (!poiId) {
+      alert('Vui lòng chọn hoặc lưu điểm POI trước khi tạo đa ngôn ngữ.');
+      return;
+    }
+
+    if (!title || !desc) {
+      alert('Vui lòng nhập Tiêu đề và Nội dung thuyết minh gốc (Tiếng Việt) trước khi tạo đa ngôn ngữ bằng AI.');
+      return;
+    }
+
+    setIsLocalizingAll(true);
+    setLocalizeProgressMsg('Đang gọi Gemini 3.8 Flash biên dịch sang 12 ngôn ngữ & sinh file Audio MP3...');
+
+    try {
+      const res = await fetch('/api/admin/localize-all', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({
+          poiId,
+          title_vi: title,
+          intro_vi: intro,
+          description_vi: desc,
+          generateAudio: true,
+        }),
+      });
+
+      const data = await res.json();
+      if (!data.success) {
+        throw new Error(data.error || data.message || 'Lỗi tạo đa ngôn ngữ');
+      }
+
+      showNotify(data.message || 'Đã tạo thành công 12 ngôn ngữ và Audio MP3!');
+      onRefreshPOIs();
+    } catch (err: any) {
+      alert('Lỗi khi tạo đa ngôn ngữ bằng AI: ' + err.message);
+    } finally {
+      setIsLocalizingAll(false);
+      setLocalizeProgressMsg('');
     }
   };
 
@@ -1502,9 +1605,9 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                                     <FileText className="w-3.5 h-3.5" />
                                   </button>
                                   <button
-                                    onClick={() => handlePrintQR(poi)}
+                                    onClick={() => setQrModalPoi(poi)}
                                     className="p-1.5 rounded-lg bg-[#f0f6f2] hover:bg-[#e2eae4] text-[#2d5a37]"
-                                    title="In mã QR"
+                                    title="Xem & Tải Mã QR (.PNG / .JPG)"
                                   >
                                     <QrCode className="w-3.5 h-3.5" />
                                   </button>
@@ -1688,9 +1791,9 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                             </button>
 
                             <button
-                              onClick={() => handlePrintQR(poi)}
+                              onClick={() => setQrModalPoi(poi)}
                               className="p-1.5 rounded-xl bg-white border border-[#e2eae4] hover:bg-[#f7f9f6] text-[#5c7362]"
-                              title="Xem và In mã QR"
+                              title="Xem & Tải Mã QR (.PNG / .JPG)"
                             >
                               <QrCode className="w-3.5 h-3.5 text-[#2d5a37]" />
                             </button>
@@ -1981,23 +2084,43 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                         />
                       </div>
 
-                      <div className="pt-2 flex justify-end gap-2">
+                      <div className="pt-3 flex flex-wrap items-center justify-between gap-2 border-t border-[#e2eae4]">
                         <button
                           type="button"
-                          onClick={() => {
-                            setIsCreatingNew(false);
-                            setEditingPoi(null);
-                          }}
-                          className="px-4 py-2 rounded-full bg-white border border-[#e2eae4] text-xs font-semibold text-[#5c7362] hover:bg-[#f7f9f6]"
+                          onClick={() =>
+                            handleOneClickLocalization(
+                              editingPoi?.poi_id,
+                              formData.title_vi,
+                              formData.intro_vi,
+                              formData.description_vi
+                            )
+                          }
+                          disabled={isLocalizingAll || !formData.title_vi || !formData.description_vi}
+                          className="px-4 py-2 rounded-full bg-gradient-to-r from-emerald-700 to-[#2d5a37] text-white hover:from-emerald-800 hover:to-[#1e3d25] disabled:opacity-50 text-xs font-bold shadow-xs flex items-center gap-1.5 transition-all"
+                          title="Sử dụng Gemini 3.8 Flash tự động dịch 12 ngôn ngữ và sinh file Audio MP3"
                         >
-                          Hủy Bỏ
+                          <Sparkles className={`w-3.5 h-3.5 ${isLocalizingAll ? 'animate-spin' : 'text-amber-300'}`} />
+                          <span>{isLocalizingAll ? 'Đang tạo 12 ngôn ngữ & Audio...' : 'Tạo đa ngôn ngữ & Audio bằng AI'}</span>
                         </button>
-                        <button
-                          type="submit"
-                          className="px-5 py-2 rounded-full bg-[#2d5a37] hover:bg-[#23462b] text-xs font-bold text-white shadow-xs"
-                        >
-                          {isCreatingNew ? 'Tạo Điểm Mới' : 'Lưu Thay Đổi'}
-                        </button>
+
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsCreatingNew(false);
+                              setEditingPoi(null);
+                            }}
+                            className="px-4 py-2 rounded-full bg-white border border-[#e2eae4] text-xs font-semibold text-[#5c7362] hover:bg-[#f7f9f6]"
+                          >
+                            Hủy Bỏ
+                          </button>
+                          <button
+                            type="submit"
+                            className="px-5 py-2 rounded-full bg-[#2d5a37] hover:bg-[#23462b] text-xs font-bold text-white shadow-xs"
+                          >
+                            {isCreatingNew ? 'Tạo Điểm Mới' : 'Lưu Thay Đổi'}
+                          </button>
+                        </div>
                       </div>
                     </form>
                   </div>
@@ -2445,14 +2568,27 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                         Đã có 12/12 bản dịch
                       </span>
                     </div>
-                    <button
-                      onClick={handleAiTranslateArticle}
-                      disabled={isAiTranslatingArticle}
-                      className="px-3 py-1.5 rounded-full bg-white border border-[#2d5a37] text-[#2d5a37] text-xs font-bold hover:bg-[#eef5f0] shadow-xs transition-colors flex items-center gap-1.5"
-                    >
-                      <Sparkles className={`w-3.5 h-3.5 ${isAiTranslatingArticle ? 'animate-spin' : ''}`} />
-                      <span>{isAiTranslatingArticle ? 'Đang dịch AI...' : 'Dịch Bằng Gemini AI'}</span>
-                    </button>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        onClick={() => handleOneClickLocalization()}
+                        disabled={isLocalizingAll}
+                        className="px-3.5 py-1.5 rounded-full bg-gradient-to-r from-emerald-700 to-[#2d5a37] text-white text-xs font-bold hover:from-emerald-800 hover:to-[#1e3d25] shadow-xs transition-all flex items-center gap-1.5"
+                        title="Tự động dịch cả 12 ngôn ngữ và sinh file Audio MP3"
+                      >
+                        <Sparkles className={`w-3.5 h-3.5 ${isLocalizingAll ? 'animate-spin' : 'text-amber-300'}`} />
+                        <span>{isLocalizingAll ? 'Đang tạo 12 ngôn ngữ...' : 'Tạo 12 ngôn ngữ & Audio bằng AI'}</span>
+                      </button>
+
+                      <button
+                        onClick={handleAiTranslateArticle}
+                        disabled={isAiTranslatingArticle}
+                        className="px-3 py-1.5 rounded-full bg-white border border-[#2d5a37] text-[#2d5a37] text-xs font-bold hover:bg-[#eef5f0] shadow-xs transition-colors flex items-center gap-1.5"
+                        title="Chỉ dịch riêng bản dịch cho ngôn ngữ đang chọn"
+                      >
+                        <Sparkles className={`w-3.5 h-3.5 ${isAiTranslatingArticle ? 'animate-spin' : ''}`} />
+                        <span>{isAiTranslatingArticle ? 'Đang dịch...' : 'Dịch Riêng Ngôn Ngữ Này'}</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
 
@@ -2982,11 +3118,24 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         </div>
       </main>
 
-      {/* QR Modal Viewer */}
+      {/* QR Modal Viewer: High Resolution (>= 512x512) & PNG/JPG Separate Downloads */}
       {qrModalPoi && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
-          <div className="bg-white rounded-3xl max-w-sm w-full border border-[#e2eae4] shadow-2xl p-6 text-center space-y-4">
-            <div className="flex justify-end">
+        <div className="fixed inset-0 z-[10001] bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-white rounded-3xl max-w-lg w-full border border-[#e2eae4] shadow-2xl p-6 sm:p-7 text-center space-y-4 max-h-[92vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-[#e2eae4] pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-[#eef5f0] text-[#2d5a37] flex items-center justify-center border border-[#d6e7da]">
+                  <QrCode className="w-5 h-5" />
+                </div>
+                <div className="text-left">
+                  <h3 className="font-serif font-bold text-base text-[#19231b]">
+                    Mã QR Chiêm Bái Độ Nét Cao
+                  </h3>
+                  <p className="text-xs text-[#5c7362]">
+                    Mã POI: <span className="font-mono font-bold text-[#2d5a37]">{qrModalPoi.code}</span> · {qrModalPoi.translations['vi']?.title || qrModalPoi.code}
+                  </p>
+                </div>
+              </div>
               <button
                 onClick={() => setQrModalPoi(null)}
                 className="w-8 h-8 rounded-full bg-[#f7f9f6] hover:bg-[#e2eae4] flex items-center justify-center text-[#5c7362]"
@@ -2994,28 +3143,47 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 <X className="w-4 h-4" />
               </button>
             </div>
-            <div className="w-12 h-12 mx-auto rounded-full bg-[#eef5f0] text-[#2d5a37] flex items-center justify-center border border-[#d6e7da]">
-              <QrCode className="w-6 h-6" />
+
+            <div className="p-4 bg-[#fafcfa] rounded-2xl border border-[#d6e7da] inline-block shadow-xs">
+              {qrPreviews[qrModalPoi.poi_id] && (
+                <img
+                  src={qrPreviews[qrModalPoi.poi_id]}
+                  alt="QR Code"
+                  className="w-64 h-64 sm:w-72 sm:h-72 mx-auto rounded-xl p-2 bg-white border border-[#e2eae4]"
+                />
+              )}
+              <div className="mt-2 text-xs font-semibold text-[#2d5a37]">
+                Kích thước xuất: 1024 x 1024 px (Sắc nét cho in biển tên & bảng hướng dẫn)
+              </div>
+              <div className="text-[11px] text-[#7a8e80]">
+                Đường dẫn liên kết: {window.location.origin}/?poi={qrModalPoi.code}
+              </div>
             </div>
-            <h3 className="font-serif font-bold text-lg text-[#19231b]">
-              {qrModalPoi.translations['vi']?.title || qrModalPoi.code}
-            </h3>
-            <p className="text-xs text-[#5c7362]">
-              Tem quét mã QR tự động thuyết minh khi tham quan
-            </p>
-            {qrPreviews[qrModalPoi.poi_id] && (
-              <img
-                src={qrPreviews[qrModalPoi.poi_id]}
-                alt="QR"
-                className="w-56 h-56 mx-auto rounded-2xl border border-[#e2eae4] p-2 bg-white shadow-xs"
-              />
-            )}
-            <div className="pt-2 flex justify-center gap-2">
+
+            <div className="pt-2 flex flex-wrap justify-center gap-2.5">
+              <button
+                onClick={() => handleDownloadQRPNG(qrModalPoi)}
+                className="px-4 py-2.5 rounded-full bg-[#2d5a37] hover:bg-[#23462b] text-white text-xs font-bold shadow-xs flex items-center gap-1.5 transition-colors"
+                title="Tải mã QR định dạng .PNG độ nét cao 1024x1024"
+              >
+                <Download className="w-4 h-4" />
+                <span>Tải QR (.PNG)</span>
+              </button>
+
+              <button
+                onClick={() => handleDownloadQRJPG(qrModalPoi)}
+                className="px-4 py-2.5 rounded-full bg-[#1e3d25] hover:bg-[#152a1a] text-white text-xs font-bold shadow-xs flex items-center gap-1.5 transition-colors"
+                title="Tải mã QR định dạng .JPG nền trắng #FFFFFF chống đen khi in"
+              >
+                <Download className="w-4 h-4" />
+                <span>Tải QR (.JPG - Nền Trắng)</span>
+              </button>
+
               <button
                 onClick={() => handlePrintQR(qrModalPoi)}
-                className="px-4 py-2 rounded-full bg-[#2d5a37] hover:bg-[#23462b] text-white text-xs font-bold shadow-xs flex items-center gap-1.5"
+                className="px-4 py-2.5 rounded-full bg-white border border-[#2d5a37] text-[#2d5a37] hover:bg-[#eef5f0] text-xs font-bold shadow-xs flex items-center gap-1.5 transition-colors"
               >
-                <Printer className="w-3.5 h-3.5" />
+                <Printer className="w-4 h-4" />
                 <span>In Tem QR</span>
               </button>
             </div>

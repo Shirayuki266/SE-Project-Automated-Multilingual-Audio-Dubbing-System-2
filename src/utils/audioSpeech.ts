@@ -34,7 +34,7 @@ export type LanguageCode =
   | 'id'
   | 'it';
 
-export type VoiceEngineId = 'chi-google' | 'google-cloud' | 'bing' | 'tiktok' | 'browser';
+export type VoiceEngineId = 'gemini-kore' | 'gemini-charon' | 'chi-google' | 'google-cloud' | 'bing' | 'tiktok' | 'browser';
 
 export interface VoiceEngineOption {
   id: VoiceEngineId;
@@ -47,10 +47,26 @@ export interface VoiceEngineOption {
 
 export const VOICE_ENGINES: VoiceEngineOption[] = [
   {
+    id: 'gemini-kore',
+    name: 'Gemini AI Kore (Giọng Nữ Thật)',
+    provider: 'Google Gemini 3.8 Flash Lite TTS',
+    description: 'Giọng đọc AI tự nhiên thế hệ mới, thanh tịnh, ấm áp, phát âm tiếng Việt chuẩn xác và tôn kính.',
+    defaultRate: 1.0,
+    defaultPitch: 1.0,
+  },
+  {
+    id: 'gemini-charon',
+    name: 'Gemini AI Charon (Giọng Nam Thật)',
+    provider: 'Google Gemini 3.8 Flash Lite TTS',
+    description: 'Giọng nam trầm ấm, trang nghiêm, phong thái đại tự thiêng liêng chốn thiền môn.',
+    defaultRate: 1.0,
+    defaultPitch: 1.0,
+  },
+  {
     id: 'chi-google',
     name: 'Chị Google / Apple Linh',
     provider: 'Google VN & Apple Native',
-    description: 'Giọng đọc chuẩn tiếng Việt, phát âm tự nhiên, trang nghiêm trên mọi thiết bị.',
+    description: 'Giọng đọc chuẩn tiếng Việt, phát âm tự nhiên trên trình duyệt thiết bị.',
     defaultRate: 1.0,
     defaultPitch: 1.0,
   },
@@ -115,6 +131,8 @@ export interface AudioEngineState {
   pitch: number;
   currentChunkIndex?: number;
   totalChunks?: number;
+  activeLayer?: 1 | 2 | 3;
+  layerName?: string;
 }
 
 /**
@@ -403,6 +421,8 @@ export class AudioSpeechEngine {
         pitch: this.speechPitch,
         currentChunkIndex: this.currentChunkIndex,
         totalChunks: this.textChunks.length,
+        activeLayer: this.activeLayer,
+        layerName: this.layerName,
       });
     }
   }
@@ -594,6 +614,10 @@ export class AudioSpeechEngine {
     }
   }
 
+  private activeLayer: 1 | 2 | 3 = 1;
+  private layerName: string = 'Vòng 1: File MP3 thu sẵn / Cached';
+  private currentAbortController: AbortController | null = null;
+
   public playNarration(
     text: string,
     lang: LanguageCode = 'vi',
@@ -603,7 +627,10 @@ export class AudioSpeechEngine {
     audioUrl?: string,
     introText?: string
   ) {
+    // 1. Anti-overlap: Cancel all prior sessions, fetch requests, and audio sources
     this.stopPlaybackInternal();
+    this.sessionToken++;
+    const currentSession = this.sessionToken;
 
     const speechSegments: string[] = [];
     if (poiTitle && poiTitle.trim()) {
@@ -623,52 +650,20 @@ export class AudioSpeechEngine {
     this.currentPoiId = poiId;
     this.elapsedSeconds = 0;
 
-    const isDedicatedAudioUrl =
-      audioUrl &&
-      audioUrl.trim() !== '' &&
-      !audioUrl.includes('/api/audio/bell') &&
-      !audioUrl.startsWith('data:audio') &&
-      /\.(mp3|m4a|aac)(\?.*)?$/i.test(audioUrl);
-
-    if (isDedicatedAudioUrl) {
-      try {
-        const audio = new Audio(audioUrl);
-        this.currentAudioElement = audio;
-        audio.onloadedmetadata = () => {
-          this.estimatedDuration = Math.round(audio.duration || 45);
-          this.notify();
-        };
-        audio.ontimeupdate = () => {
-          this.elapsedSeconds = Math.round(audio.currentTime);
-          this.notify();
-        };
-        audio.onended = () => {
-          this.cleanup();
-          this.notify();
-        };
-        audio.onerror = () => {
-          this.currentAudioElement = null;
-          this.startChunkedSpeech(fullTextToRead, lang, 0);
-        };
-        audio.play().then(() => {
-          this.isSpeaking = true;
-          this.isPaused = false;
-          this.notify();
-        }).catch(() => {
-          this.currentAudioElement = null;
-          this.startChunkedSpeech(fullTextToRead, lang, 0);
-        });
-        return;
-      } catch (e) {
-        console.warn('Native audio element notice:', e);
-      }
-    }
-
-    // Web Speech Synthesis
+    // Estimate duration for progress bar
     const words = fullTextToRead.trim().split(/\s+/).filter(Boolean).length;
     this.estimatedDuration = Math.max(12, Math.round((words / (120 * (this.speechRate || 1.0))) * 60));
 
-    this.startChunkedSpeech(fullTextToRead, lang, 0);
+    // Determine candidate URL for VÒNG 1 (Cached MP3 / File thu sẵn)
+    const candidateUrl =
+      (audioUrl && audioUrl.trim() !== '' && !audioUrl.includes('/api/audio/bell') ? audioUrl.trim() : null) ||
+      (poiId ? `/audio/${poiId}-${lang}.mp3` : null);
+
+    if (candidateUrl) {
+      this.attemptLayer1Playback(candidateUrl, fullTextToRead, lang, poiId, currentSession);
+    } else {
+      this.attemptLayer2Playback(fullTextToRead, lang, poiId, currentSession);
+    }
   }
 
   public speak(
@@ -680,6 +675,179 @@ export class AudioSpeechEngine {
     introText?: string
   ) {
     this.playNarration(text, lang, title, false, poiId, audioUrl, introText);
+  }
+
+  /**
+   * VÒNG 1: Ưu tiên cao nhất - File MP3 thu sẵn / Cached Audio
+   */
+  private attemptLayer1Playback(
+    url: string,
+    fallbackText: string,
+    lang: LanguageCode,
+    poiId: string | undefined,
+    expectedSession: number
+  ) {
+    if (this.sessionToken !== expectedSession) return;
+
+    this.activeLayer = 1;
+    this.layerName = 'Vòng 1: File MP3 thu sẵn / Cached';
+    this.isSpeaking = true;
+    this.isPaused = false;
+    this.notify();
+
+    try {
+      const audio = new Audio(url);
+      this.currentAudioElement = audio;
+
+      audio.onloadedmetadata = () => {
+        if (this.sessionToken !== expectedSession) return;
+        this.estimatedDuration = Math.max(10, Math.round(audio.duration || 45));
+        this.notify();
+      };
+
+      audio.ontimeupdate = () => {
+        if (this.sessionToken !== expectedSession) return;
+        this.elapsedSeconds = Math.round(audio.currentTime);
+        this.notify();
+      };
+
+      audio.onended = () => {
+        if (this.sessionToken !== expectedSession) return;
+        this.cleanup();
+        this.notify();
+      };
+
+      audio.onerror = () => {
+        if (this.sessionToken !== expectedSession) return;
+        console.warn(`[Audio 3-Layer] Vòng 1 MP3 load failed (${url}). Chuyển sang Vòng 2 (Cloud TTS API).`);
+        if (this.currentAudioElement === audio) {
+          this.currentAudioElement = null;
+        }
+        this.attemptLayer2Playback(fallbackText, lang, poiId, expectedSession);
+      };
+
+      audio.play().catch((e) => {
+        if (this.sessionToken !== expectedSession) return;
+        console.warn('[Audio 3-Layer] Vòng 1 autoplay prevented or failed:', e);
+        if (this.currentAudioElement === audio) {
+          this.currentAudioElement = null;
+        }
+        this.attemptLayer2Playback(fallbackText, lang, poiId, expectedSession);
+      });
+    } catch (e) {
+      if (this.sessionToken !== expectedSession) return;
+      console.warn('[Audio 3-Layer] Vòng 1 exception, chuyển sang Vòng 2:', e);
+      this.attemptLayer2Playback(fallbackText, lang, poiId, expectedSession);
+    }
+  }
+
+  /**
+   * VÒNG 2: Dự phòng 1 - Cloud TTS API (Google Cloud TTS / Gemini TTS)
+   */
+  private attemptLayer2Playback(
+    text: string,
+    lang: LanguageCode,
+    poiId: string | undefined,
+    expectedSession: number
+  ) {
+    if (this.sessionToken !== expectedSession) return;
+
+    // If device is offline, skip directly to Vòng 3
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      console.warn('[Audio 3-Layer] Thiết bị đang offline. Chuyển thẳng sang Vòng 3 (On-device Web Speech API).');
+      this.attemptLayer3Playback(text, lang, expectedSession);
+      return;
+    }
+
+    this.activeLayer = 2;
+    this.layerName = 'Vòng 2: Cloud TTS API (Google Engine)';
+    this.isSpeaking = true;
+    this.isPaused = false;
+    this.notify();
+
+    const voiceName = this.selectedEngine === 'gemini-charon' ? 'Charon' : 'Kore';
+    this.currentAbortController = new AbortController();
+
+    fetch('/api/tts/synthesize', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text,
+        poiId,
+        lang,
+        voiceName,
+      }),
+      signal: this.currentAbortController.signal,
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
+      .then((data) => {
+        if (this.sessionToken !== expectedSession) return;
+
+        if (data.success && (data.audioUrl || data.dataUrl)) {
+          const playSrc = data.audioUrl || data.dataUrl;
+          const audio = new Audio(playSrc);
+          this.currentAudioElement = audio;
+
+          audio.onloadedmetadata = () => {
+            if (this.sessionToken !== expectedSession) return;
+            this.estimatedDuration = Math.max(10, Math.round(audio.duration || 45));
+            this.notify();
+          };
+
+          audio.ontimeupdate = () => {
+            if (this.sessionToken !== expectedSession) return;
+            this.elapsedSeconds = Math.round(audio.currentTime);
+            this.notify();
+          };
+
+          audio.onended = () => {
+            if (this.sessionToken !== expectedSession) return;
+            this.cleanup();
+            this.notify();
+          };
+
+          audio.onerror = () => {
+            if (this.sessionToken !== expectedSession) return;
+            console.warn('[Audio 3-Layer] Vòng 2 audio playback failed. Chuyển sang Vòng 3 (Web Speech API).');
+            this.attemptLayer3Playback(text, lang, expectedSession);
+          };
+
+          audio.play().catch((e) => {
+            if (this.sessionToken !== expectedSession) return;
+            console.warn('[Audio 3-Layer] Vòng 2 play() failed, falling back to Vòng 3:', e);
+            this.attemptLayer3Playback(text, lang, expectedSession);
+          });
+        } else {
+          console.warn('[Audio 3-Layer] Vòng 2 TTS server returned no audio. Chuyển sang Vòng 3.');
+          this.attemptLayer3Playback(text, lang, expectedSession);
+        }
+      })
+      .catch((err) => {
+        if (this.sessionToken !== expectedSession) return;
+        if (err.name === 'AbortError') return;
+        console.warn('[Audio 3-Layer] Vòng 2 fetch error, chuyển sang Vòng 3:', err);
+        this.attemptLayer3Playback(text, lang, expectedSession);
+      });
+  }
+
+  /**
+   * VÒNG 3: Dự phòng cuối - On-device / Web Speech API (window.speechSynthesis)
+   */
+  private attemptLayer3Playback(text: string, lang: LanguageCode, expectedSession: number) {
+    if (this.sessionToken !== expectedSession) return;
+
+    this.activeLayer = 3;
+    this.layerName = 'Vòng 3: On-device Web Speech API';
+    this.notify();
+
+    this.startChunkedSpeech(text, lang, 0);
+  }
+
+  private playNativeAudioUrl(url: string, fallbackText: string, lang: LanguageCode) {
+    this.attemptLayer1Playback(url, fallbackText, lang, undefined, this.sessionToken);
   }
 
   private startChunkedSpeech(fullText: string, lang: LanguageCode, startElapsed: number = 0) {
@@ -935,6 +1103,13 @@ export class AudioSpeechEngine {
   private stopPlaybackInternal() {
     this.sessionToken++;
 
+    if (this.currentAbortController) {
+      try {
+        this.currentAbortController.abort();
+      } catch {}
+      this.currentAbortController = null;
+    }
+
     if (this.chunkWatchdogTimer) {
       clearTimeout(this.chunkWatchdogTimer);
       this.chunkWatchdogTimer = null;
@@ -944,6 +1119,9 @@ export class AudioSpeechEngine {
       try {
         this.currentAudioElement.pause();
         this.currentAudioElement.currentTime = 0;
+        this.currentAudioElement.onended = null;
+        this.currentAudioElement.onerror = null;
+        this.currentAudioElement.ontimeupdate = null;
         this.currentAudioElement = null;
       } catch {}
     }
