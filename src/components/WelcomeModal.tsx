@@ -7,7 +7,6 @@ import { getBrowserFingerprint } from '../utils/fingerprint.js';
 interface WelcomeModalProps {
   currentLang: LanguageCode;
   onStartPilgrimage: () => void;
-  onOpenAdmin?: () => void;
   todayStartsCount?: number;
   uniquePilgrimsCount?: number;
 }
@@ -15,7 +14,6 @@ interface WelcomeModalProps {
 export const WelcomeModal: React.FC<WelcomeModalProps> = ({
   currentLang,
   onStartPilgrimage,
-  onOpenAdmin,
 }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [deviceStatus, setDeviceStatus] = useState<{
@@ -150,21 +148,6 @@ export const WelcomeModal: React.FC<WelcomeModalProps> = ({
           <p className="text-center text-[11px] text-[#7a8e80]">
             Nam Mô A Di Đà Phật • Chúc quý khách chuyến chiêm bái an lạc
           </p>
-
-          {onOpenAdmin && (
-            <div className="pt-2 text-center border-t border-[#e2eae4]">
-              <button
-                type="button"
-                onClick={() => {
-                  onStartPilgrimage();
-                  onOpenAdmin();
-                }}
-                className="text-[11px] font-semibold text-amber-800 hover:text-amber-900 underline underline-offset-2 cursor-pointer transition-colors"
-              >
-                🛡️ Cổng Quản Trị Hệ Thống (Dành cho Ban Quản Trị)
-              </button>
-            </div>
-          )}
         </div>
       </div>
     </div>
