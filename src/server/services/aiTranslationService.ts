@@ -1,11 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 import { db } from '../repositories/db.js';
 import { RichPOI, POITranslation } from '../types.js';
-import { execFile } from 'child_process';
-import { promisify } from 'util';
-import path from 'path';
-
-const execFileAsync = promisify(execFile);
 
 const LANGUAGE_NAMES: Record<string, string> = {
   vi: 'Tiếng Việt (Vietnamese)',

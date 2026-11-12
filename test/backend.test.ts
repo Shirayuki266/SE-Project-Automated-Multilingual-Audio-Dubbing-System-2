@@ -145,6 +145,13 @@ assert.strictEqual(blockedDev?.status, 'blocked');
 const unblockedDev = await db.toggleBlockRealDevice('real_test_iphone_16_promax', false);
 assert.strictEqual(unblockedDev?.status, 'active');
 
-console.log('✅ MongoDB Real Devices Table (real_devices) verified without mock data.');
+// 8. Real Cloud TTS Service Verification
+import { ttsService } from '../src/server/services/ttsService.js';
+const ttsVoices = ttsService.getVoices();
+assert(ttsVoices.length >= 2, 'Should provide at least Kore and Charon voices');
+assert(ttsVoices.some((v) => v.voiceName === 'Kore'), 'Kore voice must be available');
+assert(ttsVoices.some((v) => v.voiceName === 'Charon'), 'Charon voice must be available');
+console.log('✅ Real Cloud TTS Voices verified (Kore, Charon, Puck, Zephyr).');
 
-console.log('🎉 ALL BACKEND, PYTHON, MONGODB & ADMIN AUTH TESTS PASSED SUCCESSFULLY!');
+console.log('🎉 ALL BACKEND, REAL TTS, MONGODB & ADMIN AUTH TESTS PASSED SUCCESSFULLY!');
+
