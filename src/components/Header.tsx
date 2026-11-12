@@ -10,8 +10,6 @@ import {
   Check,
   Mic,
   VolumeX,
-  Lock,
-  Shield,
   X,
   BookOpen,
 } from 'lucide-react';
@@ -26,7 +24,6 @@ interface HeaderProps {
   onOpenQRScanner: () => void;
   onOpenVoiceSelector: () => void;
   onResetWelcome: () => void;
-  onOpenAdmin: () => void;
   isAudioPlaying: boolean;
   onStopAudio: () => void;
 }
@@ -54,7 +51,6 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenQRScanner,
   onOpenVoiceSelector,
   onResetWelcome,
-  onOpenAdmin,
   isAudioPlaying,
   onStopAudio,
 }) => {
@@ -113,20 +109,6 @@ export const Header: React.FC<HeaderProps> = ({
                 >
                   <QrCode className="w-4 h-4 text-[#2d5a37]" />
                   <span>{t.scanQR}</span>
-                </button>
-
-                <div className="my-1 border-t border-[#e2eae4]" />
-
-                {/* Explicit Admin Entrance */}
-                <button
-                  onClick={() => {
-                    setShowMainMenu(false);
-                    onOpenAdmin();
-                  }}
-                  className="w-full text-left px-3 py-2 rounded-xl text-xs font-bold text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-200 flex items-center gap-2 transition-colors"
-                >
-                  <Lock className="w-4 h-4 text-amber-700" />
-                  <span>Quản Trị Hệ Thống (Admin)</span>
                 </button>
               </div>
             </>
@@ -223,16 +205,6 @@ export const Header: React.FC<HeaderProps> = ({
               </>
             )}
           </div>
-
-          {/* Direct Admin Entrance Button in Header */}
-          <button
-            onClick={onOpenAdmin}
-            className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-full bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-900 text-xs font-bold transition-all shadow-2xs hover:shadow-xs active:scale-95 cursor-pointer"
-            title="Đăng nhập Cổng Quản Trị Hệ Thống (Admin Portal)"
-          >
-            <Shield className="w-3.5 h-3.5 text-amber-700" />
-            <span>Quản Trị</span>
-          </button>
         </div>
       </div>
     </header>

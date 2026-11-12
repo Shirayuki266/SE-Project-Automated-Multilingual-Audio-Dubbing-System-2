@@ -16,7 +16,6 @@ import { AudioPlayerBar } from './components/AudioPlayerBar.tsx';
 import { POIDetailDrawer } from './components/POIDetailDrawer.tsx';
 import { QRScannerModal } from './components/QRScannerModal.tsx';
 import { VoiceSelectorModal } from './components/VoiceSelectorModal.tsx';
-import { AdminPortal } from './components/AdminPortal.tsx';
 import {
   Compass,
   Map as MapIcon,
@@ -61,7 +60,6 @@ export default function App() {
   const [showWelcome, setShowWelcome] = useState<boolean>(true);
   const [showQRScanner, setShowQRScanner] = useState<boolean>(false);
   const [showVoiceModal, setShowVoiceModal] = useState<boolean>(false);
-  const [showAdminPortal, setShowAdminPortal] = useState<boolean>(false);
 
   // Visited POI tracking ("Chưa xem", "Đang xem", "Đã xem")
   const [visitedPoiIds, setVisitedPoiIds] = useState<string[]>(() => {
@@ -114,47 +112,6 @@ export default function App() {
   });
 
   const t = translations[currentLang];
-
-  // Check URL query parameters & hash: support both direct link and browser back/forward navigation
-  useEffect(() => {
-    const syncViewFromUrl = () => {
-      const params = new URLSearchParams(window.location.search);
-      const isAdminRequested =
-        params.get('admin') === 'true' ||
-        params.get('admin') === 'login' ||
-        params.get('view') === 'admin' ||
-        window.location.hash === '#admin';
-      setShowAdminPortal(isAdminRequested);
-    };
-
-    syncViewFromUrl();
-    window.addEventListener('popstate', syncViewFromUrl);
-    window.addEventListener('hashchange', syncViewFromUrl);
-    return () => {
-      window.removeEventListener('popstate', syncViewFromUrl);
-      window.removeEventListener('hashchange', syncViewFromUrl);
-    };
-  }, []);
-
-  const handleOpenAdmin = () => {
-    setShowAdminPortal(true);
-    try {
-      const url = new URL(window.location.href);
-      url.searchParams.set('view', 'admin');
-      window.history.pushState({ view: 'admin' }, '', url.toString());
-    } catch {}
-  };
-
-  const handleCloseAdmin = () => {
-    setShowAdminPortal(false);
-    try {
-      const url = new URL(window.location.href);
-      url.searchParams.delete('admin');
-      url.searchParams.delete('view');
-      const cleanPath = url.pathname + (url.search ? url.search : '');
-      window.history.pushState({ view: 'user' }, '', cleanPath);
-    } catch {}
-  };
 
   // Fetch POIs from backend API
   const fetchPOIs = async () => {
@@ -431,17 +388,6 @@ export default function App() {
     return matchQuery;
   });
 
-  if (showAdminPortal) {
-    return (
-      <AdminPortal
-        pois={pois}
-        currentLang={currentLang}
-        onClose={handleCloseAdmin}
-        onRefreshPOIs={fetchPOIs}
-      />
-    );
-  }
-
   return (
     <div className="min-h-screen bg-[#f7f9f6] text-[#19231b] flex flex-col font-sans selection:bg-[#2d5a37] selection:text-white">
       {/* Top Navigation */}
@@ -452,7 +398,6 @@ export default function App() {
         onOpenQRScanner={() => setShowQRScanner(true)}
         onOpenVoiceSelector={() => setShowVoiceModal(true)}
         onResetWelcome={() => setShowWelcome(true)}
-        onOpenAdmin={handleOpenAdmin}
         isAudioPlaying={isAudioPlaying}
         onStopAudio={() => speechEngine.stop()}
       />
@@ -1003,16 +948,8 @@ export default function App() {
           </div>
         )}
 
-        {/* Footer with Clear Admin Portal Access */}
+        {/* Footer */}
         <footer className="pt-6 pb-2 text-center border-t border-[#e2eae4]/80 space-y-2">
-          <button
-            onClick={handleOpenAdmin}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white hover:bg-amber-50 border border-amber-300 text-stone-700 hover:text-amber-900 text-xs font-bold shadow-xs hover:shadow-md transition-all active:scale-95 cursor-pointer"
-            title="Mở cổng đăng nhập Quản trị viên (Admin Portal)"
-          >
-            <Shield className="w-4 h-4 text-amber-600" />
-            <span>Cổng Quản Trị Hệ Thống (Admin Portal) →</span>
-          </button>
           <p className="text-[10px] text-[#7a8e80]">
             Việt Nam Quốc Tự • 244 Ba Tháng Hai, Phường 12, Quận 10, TP.HCM
           </p>
@@ -1124,16 +1061,6 @@ export default function App() {
           <MapIcon className="w-5 h-5" />
           <span className="text-[10px]">{t.tabMap}</span>
         </button>
-
-        {/* Tab 4: Cổng Quản trị */}
-        <button
-          onClick={handleOpenAdmin}
-          className="flex flex-col items-center gap-0.5 py-1 px-3 rounded-2xl text-amber-800 hover:text-amber-950 transition-colors"
-          title="Chuyển sang Cổng Quản Trị Hệ Thống (Admin Portal)"
-        >
-          <Shield className="w-5 h-5 text-amber-700" />
-          <span className="text-[10px] font-bold">Quản Trị</span>
-        </button>
       </nav>
 
       {/* Floating Travel Assistant & Navigation Chatbot (Tuệ Đăng) */}
@@ -1156,7 +1083,6 @@ export default function App() {
             setShowWelcome(false);
             fetchVisitorStats();
           }}
-          onOpenAdmin={handleOpenAdmin}
           todayStartsCount={todayStartsCount}
           uniquePilgrimsCount={uniquePilgrimsCount}
         />

@@ -1,0 +1,6 @@
+allowBuilds:
+  esbuild: set this to true or false
+  msedge-tts: set this to true or false
+  protobufjs: set this to true or false
+minimumReleaseAgeExclude:
+  - maplibre-gl@6.18.0

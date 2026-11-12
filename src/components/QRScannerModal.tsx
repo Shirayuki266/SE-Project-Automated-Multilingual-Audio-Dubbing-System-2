@@ -38,7 +38,7 @@ export const QRScannerModal: React.FC<QRScannerModalProps> = ({
       }
     } catch (err: any) {
       console.warn('Camera stream error:', err);
-      setErrorMessage('Không thể mở camera trên trình duyệt này. Quý khách có thể chạm vào danh sách mã tem dán bên dưới để kích hoạt tức thì.');
+      setErrorMessage('Không thể mở camera trên trình duyệt này. Vui lòng cấp quyền truy cập camera để quét mã QR.');
       setCameraActive(false);
     }
   };
@@ -136,39 +136,6 @@ export const QRScannerModal: React.FC<QRScannerModalProps> = ({
             </span>
           </div>
         )}
-
-        {/* Quick Tap Selection Fallback */}
-        <div className="space-y-2">
-          <div className="flex items-center justify-between text-xs text-[#5c7362]">
-            <span className="font-semibold uppercase tracking-wider text-[10px]">
-              Hoặc chạm để chọn nhanh biển QR:
-            </span>
-            <span className="text-[10px] text-[#7a8e80]">8 biển mã số</span>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2">
-            {pois.map((p) => {
-              const title = p.translations[currentLang]?.title || p.translations['vi']?.title || p.code;
-              return (
-                <button
-                  key={p.poi_id}
-                  onClick={() => handleSelectPoiCode(p)}
-                  className="flex items-center gap-2 p-2 rounded-2xl bg-[#f7f9f6] hover:bg-[#eef5f0] border border-[#e2eae4] hover:border-[#2d5a37] text-left transition-all group"
-                >
-                  <div className="w-7 h-7 rounded-xl bg-white flex items-center justify-center font-bold text-xs text-[#2d5a37] border border-[#e2eae4] group-hover:bg-[#2d5a37] group-hover:text-white transition-colors">
-                    {p.code.replace('POI-', '#')}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="text-xs font-semibold text-[#19231b] truncate group-hover:text-[#2d5a37]">
-                      {title}
-                    </div>
-                    <div className="text-[10px] text-[#7a8e80]">Mã: {p.code}</div>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
       </div>
     </div>
   );
