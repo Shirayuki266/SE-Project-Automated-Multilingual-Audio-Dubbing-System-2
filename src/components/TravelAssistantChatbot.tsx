@@ -25,6 +25,7 @@ interface TravelAssistantChatbotProps {
   currentLang: LanguageCode;
   userLocation: UserLocationState;
   onSelectPOI?: (poi: RichPOI, autoPlay?: boolean) => void;
+  isAudioActive?: boolean;
 }
 
 interface ChatMessageItem {
@@ -53,6 +54,7 @@ export const TravelAssistantChatbot: React.FC<TravelAssistantChatbotProps> = ({
   currentLang,
   userLocation,
   onSelectPOI,
+  isAudioActive = false,
 }) => {
   const [isOpen, setIsOpen] = useState<boolean>(false);
   const [inputText, setInputText] = useState<string>('');
@@ -165,8 +167,14 @@ export const TravelAssistantChatbot: React.FC<TravelAssistantChatbotProps> = ({
 
   return (
     <>
-      {/* Floating Action Button (Bottom Right) */}
-      <div className="fixed bottom-20 right-4 sm:bottom-6 sm:right-6 z-40 pointer-events-auto">
+      {/* Floating Action Button (Bottom Right - Docks safely above AudioPlayerBar if active) */}
+      <div
+        className={`fixed right-3 sm:right-6 z-40 pointer-events-auto transition-all duration-300 ${
+          isAudioActive
+            ? 'bottom-[138px] sm:bottom-[132px]'
+            : 'bottom-[68px] sm:bottom-6'
+        }`}
+      >
         <button
           onClick={() => setIsOpen(!isOpen)}
           className="group relative flex items-center gap-2 px-4 py-3 rounded-full bg-gradient-to-r from-[#2d5a37] via-[#1e3d25] to-[#2d5a37] text-white shadow-xl hover:shadow-2xl hover:scale-105 active:scale-95 transition-all border border-amber-300/40"

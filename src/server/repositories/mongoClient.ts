@@ -9,42 +9,56 @@ export class MongoDatabaseManager {
   private db: Db | null = null;
   public isConnectedToRemote: boolean = false;
   private connectionAttempted: boolean = false;
+  private initPromise: Promise<boolean> | null = null;
 
   constructor() {
     this.initClient();
   }
 
-  private async initClient() {
-    if (!mongoUri || mongoUri.includes('username:password') || this.connectionAttempted) {
+  public async initClient(): Promise<boolean> {
+    if (this.initPromise) return this.initPromise;
+
+    const mongoUri = process.env.MONGODB_URI;
+    const dbName = process.env.MONGODB_DB_NAME || 'vietnam_quoc_tu';
+
+    if (!mongoUri || mongoUri.includes('username:password') || mongoUri.trim() === '') {
       console.log('[MongoDB] Running with embedded MongoDB document engine & 2dsphere spatial indexing (MONGODB_URI not set or pending).');
-      return;
+      this.isConnectedToRemote = false;
+      this.initPromise = Promise.resolve(false);
+      return false;
     }
 
     this.connectionAttempted = true;
-    try {
-      this.client = new MongoClient(mongoUri, {
-        serverSelectionTimeoutMS: 4000,
-        connectTimeoutMS: 5000,
-      });
+    this.initPromise = (async () => {
+      try {
+        this.client = new MongoClient(mongoUri, {
+          serverSelectionTimeoutMS: 5000,
+          connectTimeoutMS: 6000,
+        });
 
-      await this.client.connect();
-      this.db = this.client.db(dbName);
-      this.isConnectedToRemote = true;
+        await this.client.connect();
+        this.db = this.client.db(dbName);
+        this.isConnectedToRemote = true;
 
-      // Ensure 2dsphere Geospatial Index for POIs
-      await this.db.collection('pois').createIndex({ location: '2dsphere' }, { background: true });
-      await this.db.collection('pois').createIndex({ code: 1 }, { unique: true });
-      await this.db.collection('poi_translations').createIndex({ poi_id: 1, language_code: 1 }, { unique: true });
+        // Ensure Indexes
+        await this.db.collection('pois').createIndex({ location: '2dsphere' }, { background: true });
+        await this.db.collection('pois').createIndex({ code: 1 }, { unique: true });
+        await this.db.collection('poi_translations').createIndex({ poi_id: 1, language_code: 1 }, { unique: true });
+        await this.db.collection('real_devices').createIndex({ device_id: 1 }, { unique: true });
+        await this.db.collection('real_devices').createIndex({ last_seen_at: -1 });
+        await this.db.collection('device_access').createIndex({ key: 1 }, { unique: true });
+        await this.db.collection('device_access').createIndex({ dateStr: 1 });
 
-      // Ensure Real Devices Index (Thiết bị đăng nhập/truy cập thực - không tạo ảo)
-      await this.db.collection('real_devices').createIndex({ device_id: 1 }, { unique: true });
-      await this.db.collection('real_devices').createIndex({ last_seen_at: -1 });
+        console.log(`[MongoDB] Successfully connected to remote MongoDB database: "${dbName}" with 2dsphere spatial index & collections.`);
+        return true;
+      } catch (err: any) {
+        console.warn(`[MongoDB] Remote cluster connection notice (${err.message}). Seamlessly using embedded MongoDB-compatible document store.`);
+        this.isConnectedToRemote = false;
+        return false;
+      }
+    })();
 
-      console.log(`[MongoDB] Successfully connected to remote MongoDB database: "${dbName}" with 2dsphere spatial index & real_devices collection.`);
-    } catch (err: any) {
-      console.warn(`[MongoDB] Remote cluster connection notice (${err.message}). Seamlessly using embedded MongoDB-compatible document store.`);
-      this.isConnectedToRemote = false;
-    }
+    return this.initPromise;
   }
 
   public getDb(): Db | null {

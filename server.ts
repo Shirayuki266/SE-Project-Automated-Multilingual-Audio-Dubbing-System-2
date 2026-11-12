@@ -3,11 +3,21 @@ import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import apiRouter from './src/server/routes/api.js';
+import { mongoManager } from './src/server/repositories/mongoClient.js';
+import { db } from './src/server/repositories/db.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 async function startServer() {
+  // Initialize MongoDB connection & synchronization if MONGODB_URI is provided
+  try {
+    await mongoManager.initClient();
+    await db.syncWithMongoDB();
+  } catch (err: any) {
+    console.warn('[Server Startup] MongoDB init notice:', err?.message || err);
+  }
+
   const app = express();
   const port = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
   const isProduction = process.env.NODE_ENV === 'production';

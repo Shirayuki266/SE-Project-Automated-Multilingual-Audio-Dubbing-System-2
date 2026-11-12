@@ -514,11 +514,21 @@ export class AudioSpeechEngine {
   }
 
   public setRate(rate: number, markUserCustom: boolean = true) {
-    this.speechRate = Math.max(0.7, Math.min(1.4, Math.round(rate * 100) / 100));
+    this.speechRate = Math.max(0.75, Math.min(1.5, Math.round(rate * 100) / 100));
     try {
       localStorage.setItem('vnqt_speech_rate', String(this.speechRate));
       if (markUserCustom) localStorage.setItem('vnqt_voice_user_customized', 'true');
     } catch {}
+
+    // CẬP NHẬT TRỰC TIẾP TỐC ĐỘ CHO HTML AUDIO ELEMENT (Vòng 1 & Vòng 2)
+    if (this.currentAudioElement) {
+      try {
+        this.currentAudioElement.playbackRate = this.speechRate;
+      } catch (err) {
+        console.warn('[AudioSpeechEngine] Failed to apply playbackRate to audio element:', err);
+      }
+    }
+
     if (this.isSpeaking && !this.currentAudioElement) {
       this.seekTo(this.elapsedSeconds);
     } else {
@@ -693,16 +703,13 @@ export class AudioSpeechEngine {
     const words = fullTextToRead.trim().split(/\s+/).filter(Boolean).length;
     this.estimatedDuration = Math.max(12, Math.round((words / (120 * (this.speechRate || 1.0))) * 60));
 
-    // Determine candidate URL for VÒNG 1 (Cached MP3 / File thu sẵn)
-    const candidateUrl =
+    // Determine candidate URL for VÒNG 2 (File thu sẵn / Cached Audio)
+    const candidateFileUrl =
       (audioUrl && audioUrl.trim() !== '' && !audioUrl.includes('/api/audio/bell') ? audioUrl.trim() : null) ||
       (poiId ? `/audio/${poiId}-${lang}.mp3` : null);
 
-    if (candidateUrl) {
-      this.attemptLayer1Playback(candidateUrl, fullTextToRead, lang, poiId, currentSession);
-    } else {
-      this.attemptLayer2Playback(fullTextToRead, lang, poiId, currentSession);
-    }
+    // MỨC ƯU TIÊN MỚI: VÒNG 1 (TTS Web) -> VÒNG 2 (File Audio) -> VÒNG 3 (TTS Chip Điện Thoại)
+    this.attemptLayer1WebTTSPlayback(fullTextToRead, lang, poiId, candidateFileUrl, currentSession);
   }
 
   public speak(
@@ -742,119 +749,28 @@ export class AudioSpeechEngine {
   }
 
   /**
-   * VÒNG 1: Ưu tiên cao nhất - File MP3 thu sẵn / Cached Audio
+   * VÒNG 1: Ưu tiên cao nhất - TTS Web (Cloud / AI TTS API: Google / Edge TTS)
    */
-  private attemptLayer1Playback(
-    url: string,
-    fallbackText: string,
-    lang: LanguageCode,
-    poiId: string | undefined,
-    expectedSession: number
-  ) {
-    if (this.sessionToken !== expectedSession) return;
-
-    this.activeLayer = 1;
-    this.layerName = 'Vòng 1: File MP3 thu sẵn / Cached';
-    this.playbackStatus = 'loading';
-    this.statusMessage = 'Đang tải âm thanh thu sẵn...';
-    this.autoplayBlocked = false;
-    this.pendingBlockedPlayback = null;
-    this.isSpeaking = true;
-    this.isPaused = false;
-    this.notify();
-
-    try {
-      const audio = new Audio(url);
-      audio.preload = 'auto';
-      audio.playbackRate = this.speechRate || 1.0;
-      this.currentAudioElement = audio;
-
-      audio.onloadedmetadata = () => {
-        if (this.sessionToken !== expectedSession) return;
-        this.estimatedDuration = Math.max(10, Math.round(audio.duration || 45));
-        this.notify();
-      };
-
-      audio.onplaying = () => {
-        if (this.sessionToken !== expectedSession) return;
-        this.playbackStatus = 'playing';
-        this.statusMessage = 'Đang phát từ file thu sẵn';
-        this.autoplayBlocked = false;
-        this.notify();
-      };
-
-      audio.ontimeupdate = () => {
-        if (this.sessionToken !== expectedSession) return;
-        this.elapsedSeconds = Math.round(audio.currentTime);
-        this.notify();
-      };
-
-      audio.onended = () => {
-        if (this.sessionToken !== expectedSession) return;
-        this.cleanup();
-        this.notify();
-      };
-
-      audio.onerror = () => {
-        if (this.sessionToken !== expectedSession) return;
-        console.warn(`[Audio 3-Layer] Vòng 1 MP3 load failed (${url}). Chuyển sang Vòng 2 (Cloud TTS API).`);
-        if (this.currentAudioElement === audio) {
-          this.currentAudioElement = null;
-        }
-        this.attemptLayer2Playback(fallbackText, lang, poiId, expectedSession);
-      };
-
-      audio.play().catch((e) => {
-        if (this.sessionToken !== expectedSession) return;
-        if (this.isAutoplayError(e)) {
-          console.warn('[Audio 3-Layer] Vòng 1 bị chặn autoplay (NotAllowedError):', e);
-          this.isSpeaking = false;
-          this.isPaused = false;
-          this.playbackStatus = 'blocked';
-          this.autoplayBlocked = true;
-          this.statusMessage = 'Trình duyệt chặn tự phát. Chạm "Phát âm thanh" để nghe.';
-          this.pendingBlockedPlayback = () => {
-            if (this.sessionToken !== expectedSession) return;
-            this.attemptLayer1Playback(url, fallbackText, lang, poiId, expectedSession);
-          };
-          this.notify();
-          return;
-        }
-        console.warn('[Audio 3-Layer] Vòng 1 play failed, chuyển sang Vòng 2:', e);
-        if (this.currentAudioElement === audio) {
-          this.currentAudioElement = null;
-        }
-        this.attemptLayer2Playback(fallbackText, lang, poiId, expectedSession);
-      });
-    } catch (e) {
-      if (this.sessionToken !== expectedSession) return;
-      console.warn('[Audio 3-Layer] Vòng 1 exception, chuyển sang Vòng 2:', e);
-      this.attemptLayer2Playback(fallbackText, lang, poiId, expectedSession);
-    }
-  }
-
-  /**
-   * VÒNG 2: Dự phòng 1 - Cloud TTS API (Google Cloud TTS / Gemini TTS)
-   */
-  private attemptLayer2Playback(
+  private attemptLayer1WebTTSPlayback(
     text: string,
     lang: LanguageCode,
     poiId: string | undefined,
+    candidateFileUrl: string | null,
     expectedSession: number
   ) {
     if (this.sessionToken !== expectedSession) return;
 
-    // If device is offline, skip directly to Vòng 3
+    // Thiết bị offline: Chuyển sang Vòng 2 (File Audio) hoặc Vòng 3
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
-      console.warn('[Audio 3-Layer] Thiết bị đang offline. Chuyển thẳng sang Vòng 3 (On-device Web Speech API).');
-      this.attemptLayer3Playback(text, lang, expectedSession, 'Thiết bị ngoại tuyến — đã chuyển sang giọng đọc thiết bị');
+      console.warn('[Audio Priority] Ngoại tuyến. Chuyển sang Vòng 2 (File Audio).');
+      this.attemptLayer2FileAudioPlayback(candidateFileUrl, text, lang, poiId, expectedSession);
       return;
     }
 
-    this.activeLayer = 2;
-    this.layerName = 'Vòng 2: Cloud TTS API (Google Engine)';
+    this.activeLayer = 1;
+    this.layerName = 'Vòng 1: TTS Web (Cloud / AI TTS)';
     this.playbackStatus = 'loading';
-    this.statusMessage = 'Đang tạo giọng đọc Cloud TTS...';
+    this.statusMessage = 'Đang kết nối TTS Web...';
     this.autoplayBlocked = false;
     this.isSpeaking = true;
     this.isPaused = false;
@@ -869,10 +785,10 @@ export class AudioSpeechEngine {
     }
     this.fetchTimeoutTimer = setTimeout(() => {
       if (this.currentAbortController === controller) {
-        console.warn('[Audio 3-Layer] Vòng 2 timeout (12s). Chuyển sang Vòng 3.');
+        console.warn('[Audio Priority] Vòng 1 TTS Web timeout (10s). Chuyển sang Vòng 2.');
         controller.abort('timeout');
       }
-    }, 12000);
+    }, 10000);
 
     fetch('/api/tts/synthesize', {
       method: 'POST',
@@ -882,6 +798,7 @@ export class AudioSpeechEngine {
         poiId,
         lang,
         voiceName,
+        speed: this.speechRate || 1.0,
       }),
       signal: controller.signal,
     })
@@ -903,23 +820,32 @@ export class AudioSpeechEngine {
           audio.playbackRate = this.speechRate || 1.0;
           this.currentAudioElement = audio;
 
+          audio.onplay = () => {
+            audio.playbackRate = this.speechRate || 1.0;
+          };
+
           audio.onloadedmetadata = () => {
             if (this.sessionToken !== expectedSession) return;
-            this.estimatedDuration = Math.max(10, Math.round(audio.duration || 45));
+            if (Number.isFinite(audio.duration) && audio.duration > 0) {
+              this.estimatedDuration = Math.max(10, Math.round(audio.duration));
+            }
             this.notify();
           };
 
           audio.onplaying = () => {
             if (this.sessionToken !== expectedSession) return;
+            audio.playbackRate = this.speechRate || 1.0;
             this.playbackStatus = 'playing';
-            this.statusMessage = data.isCached ? 'Đang phát từ bộ nhớ đệm Cloud TTS' : 'Đang phát giọng đọc Cloud TTS';
+            this.statusMessage = data.isCached ? 'Đang phát từ bộ nhớ đệm TTS Web' : 'Đang phát giọng đọc TTS Web';
             this.autoplayBlocked = false;
             this.notify();
           };
 
           audio.ontimeupdate = () => {
             if (this.sessionToken !== expectedSession) return;
-            this.elapsedSeconds = Math.round(audio.currentTime);
+            if (Number.isFinite(audio.currentTime)) {
+              this.elapsedSeconds = Math.round(audio.currentTime);
+            }
             this.notify();
           };
 
@@ -931,14 +857,17 @@ export class AudioSpeechEngine {
 
           audio.onerror = () => {
             if (this.sessionToken !== expectedSession) return;
-            console.warn('[Audio 3-Layer] Vòng 2 audio playback failed. Chuyển sang Vòng 3 (Web Speech API).');
-            this.attemptLayer3Playback(text, lang, expectedSession, 'Không phát được âm thanh Cloud — đã chuyển sang giọng đọc thiết bị');
+            console.warn('[Audio Priority] Vòng 1 TTS Web phát lỗi. Chuyển sang Vòng 2 (File Audio).');
+            if (this.currentAudioElement === audio) {
+              this.currentAudioElement = null;
+            }
+            this.attemptLayer2FileAudioPlayback(candidateFileUrl, text, lang, poiId, expectedSession);
           };
 
           audio.play().catch((e) => {
             if (this.sessionToken !== expectedSession) return;
             if (this.isAutoplayError(e)) {
-              console.warn('[Audio 3-Layer] Vòng 2 bị chặn autoplay (NotAllowedError):', e);
+              console.warn('[Audio Priority] Vòng 1 bị chặn autoplay (NotAllowedError):', e);
               this.isSpeaking = false;
               this.isPaused = false;
               this.playbackStatus = 'blocked';
@@ -946,17 +875,20 @@ export class AudioSpeechEngine {
               this.statusMessage = 'Trình duyệt chặn tự phát. Chạm "Phát âm thanh" để nghe.';
               this.pendingBlockedPlayback = () => {
                 if (this.sessionToken !== expectedSession) return;
-                this.attemptLayer1Playback(playSrc, text, lang, poiId, expectedSession);
+                this.attemptLayer1WebTTSPlayback(text, lang, poiId, candidateFileUrl, expectedSession);
               };
               this.notify();
               return;
             }
-            console.warn('[Audio 3-Layer] Vòng 2 play() failed, falling back to Vòng 3:', e);
-            this.attemptLayer3Playback(text, lang, expectedSession, 'Đã chuyển sang giọng đọc thiết bị');
+            console.warn('[Audio Priority] Vòng 1 play() lỗi, chuyển sang Vòng 2:', e);
+            if (this.currentAudioElement === audio) {
+              this.currentAudioElement = null;
+            }
+            this.attemptLayer2FileAudioPlayback(candidateFileUrl, text, lang, poiId, expectedSession);
           });
         } else {
-          console.warn('[Audio 3-Layer] Vòng 2 TTS server returned no audio. Chuyển sang Vòng 3.');
-          this.attemptLayer3Playback(text, lang, expectedSession, 'Cloud TTS chưa khả dụng — đã chuyển sang giọng đọc thiết bị');
+          console.warn('[Audio Priority] Vòng 1 TTS Web không trả về audio. Chuyển sang Vòng 2.');
+          this.attemptLayer2FileAudioPlayback(candidateFileUrl, text, lang, poiId, expectedSession);
         }
       })
       .catch((err) => {
@@ -966,15 +898,122 @@ export class AudioSpeechEngine {
         }
         if (this.sessionToken !== expectedSession) return;
         if (err?.name === 'AbortError' && controller.signal.reason !== 'timeout') return;
-        console.warn('[Audio 3-Layer] Vòng 2 fetch error/timeout, chuyển sang Vòng 3:', err);
-        this.attemptLayer3Playback(text, lang, expectedSession, 'Cloud TTS quá thời gian/lỗi mạng — đã chuyển sang giọng đọc thiết bị');
+        console.warn('[Audio Priority] Vòng 1 lỗi kết nối/timeout, chuyển sang Vòng 2:', err);
+        this.attemptLayer2FileAudioPlayback(candidateFileUrl, text, lang, poiId, expectedSession);
       });
   }
 
   /**
-   * VÒNG 3: Dự phòng cuối - On-device / Web Speech API (window.speechSynthesis)
+   * VÒNG 2: Ưu tiên nhì - File Audio thu sẵn / Cached Audio
    */
-  private attemptLayer3Playback(
+  private attemptLayer2FileAudioPlayback(
+    url: string | null,
+    fallbackText: string,
+    lang: LanguageCode,
+    poiId: string | undefined,
+    expectedSession: number
+  ) {
+    if (this.sessionToken !== expectedSession) return;
+
+    if (!url) {
+      console.warn('[Audio Priority] Không có file âm thanh thu sẵn. Chuyển sang Vòng 3 (TTS Chip Điện Thoại).');
+      this.attemptLayer3DeviceTTSPlayback(fallbackText, lang, expectedSession, 'Chuyển sang TTS chip điện thoại');
+      return;
+    }
+
+    this.activeLayer = 2;
+    this.layerName = 'Vòng 2: File Audio (Thu sẵn / Cached)';
+    this.playbackStatus = 'loading';
+    this.statusMessage = 'Đang tải file audio...';
+    this.autoplayBlocked = false;
+    this.pendingBlockedPlayback = null;
+    this.isSpeaking = true;
+    this.isPaused = false;
+    this.notify();
+
+    try {
+      const audio = new Audio(url);
+      audio.preload = 'auto';
+      audio.playbackRate = this.speechRate || 1.0;
+      this.currentAudioElement = audio;
+
+      audio.onplay = () => {
+        audio.playbackRate = this.speechRate || 1.0;
+      };
+
+      audio.onloadedmetadata = () => {
+        if (this.sessionToken !== expectedSession) return;
+        if (Number.isFinite(audio.duration) && audio.duration > 0) {
+          this.estimatedDuration = Math.max(10, Math.round(audio.duration));
+        }
+        this.notify();
+      };
+
+      audio.onplaying = () => {
+        if (this.sessionToken !== expectedSession) return;
+        audio.playbackRate = this.speechRate || 1.0;
+        this.playbackStatus = 'playing';
+        this.statusMessage = 'Đang phát từ file audio thu sẵn';
+        this.autoplayBlocked = false;
+        this.notify();
+      };
+
+      audio.ontimeupdate = () => {
+        if (this.sessionToken !== expectedSession) return;
+        if (Number.isFinite(audio.currentTime)) {
+          this.elapsedSeconds = Math.round(audio.currentTime);
+        }
+        this.notify();
+      };
+
+      audio.onended = () => {
+        if (this.sessionToken !== expectedSession) return;
+        this.cleanup();
+        this.notify();
+      };
+
+      audio.onerror = () => {
+        if (this.sessionToken !== expectedSession) return;
+        console.warn(`[Audio Priority] Vòng 2 nạp file audio thất bại (${url}). Chuyển sang Vòng 3 (TTS Chip Điện Thoại).`);
+        if (this.currentAudioElement === audio) {
+          this.currentAudioElement = null;
+        }
+        this.attemptLayer3DeviceTTSPlayback(fallbackText, lang, expectedSession, 'File âm thanh lỗi — chuyển sang TTS chip điện thoại');
+      };
+
+      audio.play().catch((e) => {
+        if (this.sessionToken !== expectedSession) return;
+        if (this.isAutoplayError(e)) {
+          console.warn('[Audio Priority] Vòng 2 bị chặn autoplay (NotAllowedError):', e);
+          this.isSpeaking = false;
+          this.isPaused = false;
+          this.playbackStatus = 'blocked';
+          this.autoplayBlocked = true;
+          this.statusMessage = 'Trình duyệt chặn tự phát. Chạm "Phát âm thanh" để nghe.';
+          this.pendingBlockedPlayback = () => {
+            if (this.sessionToken !== expectedSession) return;
+            this.attemptLayer2FileAudioPlayback(url, fallbackText, lang, poiId, expectedSession);
+          };
+          this.notify();
+          return;
+        }
+        console.warn('[Audio Priority] Vòng 2 phát file thất bại, chuyển sang Vòng 3:', e);
+        if (this.currentAudioElement === audio) {
+          this.currentAudioElement = null;
+        }
+        this.attemptLayer3DeviceTTSPlayback(fallbackText, lang, expectedSession, 'Chuyển sang TTS chip điện thoại');
+      });
+    } catch (e) {
+      if (this.sessionToken !== expectedSession) return;
+      console.warn('[Audio Priority] Vòng 2 exception, chuyển sang Vòng 3:', e);
+      this.attemptLayer3DeviceTTSPlayback(fallbackText, lang, expectedSession, 'Chuyển sang TTS chip điện thoại');
+    }
+  }
+
+  /**
+   * VÒNG 3: Dự phòng cuối - TTS Chip Điện Thoại (On-device Web Speech API)
+   */
+  private attemptLayer3DeviceTTSPlayback(
     text: string,
     lang: LanguageCode,
     expectedSession: number,
@@ -983,11 +1022,11 @@ export class AudioSpeechEngine {
     if (this.sessionToken !== expectedSession) return;
 
     this.activeLayer = 3;
-    this.layerName = 'Vòng 3: On-device Web Speech API';
+    this.layerName = 'Vòng 3: TTS Chip Điện Thoại (Web Speech)';
     this.playbackStatus = this.synth ? 'playing' : 'error';
     this.statusMessage = this.synth
-      ? (reasonMessage || 'Đang phát bằng giọng đọc thiết bị')
-      : 'Trình duyệt không hỗ trợ giọng đọc thiết bị';
+      ? (reasonMessage || 'Đang phát bằng TTS chip điện thoại')
+      : 'Thiết bị không hỗ trợ giọng đọc phần cứng';
     this.autoplayBlocked = false;
     this.notify();
 
@@ -995,7 +1034,7 @@ export class AudioSpeechEngine {
   }
 
   private playNativeAudioUrl(url: string, fallbackText: string, lang: LanguageCode) {
-    this.attemptLayer1Playback(url, fallbackText, lang, undefined, this.sessionToken);
+    this.attemptLayer2FileAudioPlayback(url, fallbackText, lang, undefined, this.sessionToken);
   }
 
   private startChunkedSpeech(fullText: string, lang: LanguageCode, startElapsed: number = 0) {
@@ -1065,13 +1104,11 @@ export class AudioSpeechEngine {
     }
 
     // DISTORTION SHIELD FOR APPLE (iOS/iPadOS/macOS):
-    // Force pitch = 1.0 and clamp rate to [0.95 - 1.05] (nominal 1.0)
+    // Force pitch = 1.0 to prevent robotic chipmunk, allow natural rate scaling
     const isApple =
       isApplePlatform() || (chosenVoice && /apple|linh|mai|siri/i.test(chosenVoice.name + ' ' + chosenVoice.voiceURI));
     const safePitch = isApple ? 1.0 : Math.max(0.85, Math.min(1.25, this.speechPitch));
-    const safeRate = isApple
-      ? Math.max(0.95, Math.min(1.05, this.speechRate || 1.0))
-      : Math.max(0.8, Math.min(1.3, this.speechRate || 1.0));
+    const safeRate = Math.max(0.75, Math.min(1.4, this.speechRate || 1.0));
 
     utterance.rate = safeRate;
     utterance.pitch = safePitch;

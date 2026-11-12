@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { RichPOI } from '../server/types.js';
-import { LanguageCode } from '../utils/audioSpeech.js';
+import { LanguageCode, speechEngine } from '../utils/audioSpeech.js';
 import { translations } from '../translations/index.js';
 import {
   X,
@@ -83,10 +83,23 @@ export const POIDetailDrawer: React.FC<POIDetailDrawerProps> = ({
   onSetRate,
   onOpenVoiceSelector,
 }) => {
-  const [currentSpeed, setCurrentSpeed] = useState<number>(1.0);
+  const [currentSpeed, setCurrentSpeed] = useState<number>(() => {
+    try {
+      return speechEngine.getRate() || 1.0;
+    } catch {
+      return 1.0;
+    }
+  });
   const [touchStartY, setTouchStartY] = useState<number | null>(null);
   const [touchDeltaY, setTouchDeltaY] = useState<number>(0);
   const drawerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const rate = speechEngine.getRate();
+    if (rate && Number.isFinite(rate)) {
+      setCurrentSpeed(rate);
+    }
+  }, [isPlaying, isPaused, isOpen]);
 
   if (!isOpen || !poi) return null;
 
@@ -98,14 +111,20 @@ export const POIDetailDrawer: React.FC<POIDetailDrawerProps> = ({
   const mediaItem = poi.media[0];
   const imageUrl = mediaItem?.image_url || 'https://images.unsplash.com/photo-1544644181-1484b3fdfc62?auto=format&fit=crop&w=1000&q=80';
 
+  const safeDuration = (duration && Number.isFinite(duration) && duration > 0) ? Math.round(duration) : 60;
+  const safeElapsed = (elapsedSeconds && Number.isFinite(elapsedSeconds) && elapsedSeconds >= 0)
+    ? Math.min(Math.round(elapsedSeconds), safeDuration)
+    : 0;
+
   const formatTime = (sec: number) => {
+    if (!Number.isFinite(sec) || isNaN(sec) || sec < 0) return '0:00';
     const m = Math.floor(sec / 60);
     const s = Math.floor(sec % 60);
     return `${m}:${s < 10 ? '0' : ''}${s}`;
   };
 
   const cycleSpeed = () => {
-    const speeds = [0.85, 1.0, 1.2, 1.35];
+    const speeds = [0.75, 1.0, 1.25, 1.5];
     const currentIndex = speeds.indexOf(currentSpeed);
     const nextSpeed = speeds[(currentIndex + 1) % speeds.length];
     setCurrentSpeed(nextSpeed);
@@ -313,7 +332,7 @@ export const POIDetailDrawer: React.FC<POIDetailDrawerProps> = ({
           {/* Seekbar & Time Stamp */}
           <div className="space-y-1">
             <div className="flex items-center justify-between text-xs font-mono font-bold text-[#2d5a37]">
-              <span>{formatTime(elapsedSeconds)}</span>
+              <span>{formatTime(safeElapsed)}</span>
               <span className="text-[11px] text-[#5c7362] font-sans font-medium flex items-center gap-1">
                 {isPlaying && !isPaused && (
                   <span className="flex items-center gap-0.5 text-emerald-700">
@@ -321,7 +340,7 @@ export const POIDetailDrawer: React.FC<POIDetailDrawerProps> = ({
                     Đang phát
                   </span>
                 )}
-                <span>/ {formatTime(duration)}</span>
+                <span>/ {formatTime(safeDuration)}</span>
               </span>
             </div>
 
@@ -329,8 +348,8 @@ export const POIDetailDrawer: React.FC<POIDetailDrawerProps> = ({
             <input
               type="range"
               min={0}
-              max={duration || 60}
-              value={elapsedSeconds}
+              max={safeDuration}
+              value={safeElapsed}
               onChange={(e) => onSeek(Number(e.target.value))}
               className="w-full h-2 bg-[#d6e5d9] rounded-lg appearance-none cursor-pointer accent-[#2d5a37]"
             />
