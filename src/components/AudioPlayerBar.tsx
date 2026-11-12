@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { RichPOI } from '../server/types.js';
-import { LanguageCode } from '../utils/audioSpeech.js';
+import { LanguageCode, AudioPlaybackStatus } from '../utils/audioSpeech.js';
 import { translations } from '../translations/index.js';
 import {
   Play,
@@ -40,6 +40,10 @@ interface AudioPlayerBarProps {
   onOpenDetailModal?: () => void;
   activeLayer?: 1 | 2 | 3;
   layerName?: string;
+  audioStatus?: AudioPlaybackStatus;
+  statusMessage?: string;
+  autoplayBlocked?: boolean;
+  onRetryAutoplay?: () => void;
 }
 
 export const AudioPlayerBar: React.FC<AudioPlayerBarProps> = ({
@@ -63,6 +67,10 @@ export const AudioPlayerBar: React.FC<AudioPlayerBarProps> = ({
   onOpenDetailModal,
   activeLayer = 1,
   layerName,
+  audioStatus = 'idle',
+  statusMessage,
+  autoplayBlocked = false,
+  onRetryAutoplay,
 }) => {
   const [currentSpeed, setCurrentSpeed] = useState<number>(1.0);
   const [isDismissedByUser, setIsDismissedByUser] = useState<boolean>(false);
@@ -120,8 +128,31 @@ export const AudioPlayerBar: React.FC<AudioPlayerBarProps> = ({
         />
       </div>
 
-      {/* Status Callout when Audio is actively reading */}
-      {(isPlaying || isPaused) && (
+      {/* Autoplay Blocked Manual Play Banner (iOS Safari / Android Chrome) */}
+      {autoplayBlocked && (
+        <div className="bg-amber-50 border-b border-amber-200 px-3.5 py-2 flex items-center justify-between gap-2 text-xs text-amber-900">
+          <span className="font-medium truncate">
+            {statusMessage || 'Trình duyệt chặn tự động phát. Chạm để nghe thuyết minh.'}
+          </span>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              if (onRetryAutoplay) {
+                onRetryAutoplay();
+              } else {
+                onPlay(currentPOI);
+              }
+            }}
+            className="shrink-0 inline-flex items-center gap-1 px-3 py-1 rounded-full bg-[#2d5a37] hover:bg-[#23462b] text-white font-bold text-[11px] shadow-xs cursor-pointer"
+          >
+            <Play className="w-3 h-3 fill-current" />
+            <span>Phát âm thanh</span>
+          </button>
+        </div>
+      )}
+
+      {/* Status Callout when Audio is actively loading/reading */}
+      {(isPlaying || isPaused) && !autoplayBlocked && (
         <div className="bg-[#eef5f0] border-b border-[#d8e6db] px-3.5 py-1 flex items-center justify-between text-[11px] text-[#1e3d25]">
           <div
             onClick={onOpenDetailModal}
@@ -134,8 +165,17 @@ export const AudioPlayerBar: React.FC<AudioPlayerBarProps> = ({
               <span className="relative inline-flex rounded-full h-2 w-2 bg-[#2d5a37]" />
             </span>
             <span className="font-bold shrink-0">
-              {isPlaying && !isPaused ? 'Đang thuyết minh' : 'Tạm dừng'}
+              {audioStatus === 'loading'
+                ? 'Đang tải âm thanh...'
+                : isPlaying && !isPaused
+                ? 'Đang thuyết minh'
+                : 'Tạm dừng'}
             </span>
+            {statusMessage && activeLayer === 3 && (
+              <span className="text-[10px] text-amber-800 font-medium truncate hidden md:inline">
+                ({statusMessage})
+              </span>
+            )}
             {isPlaying && !isPaused && (
               <div className="flex items-end gap-0.5 h-3 ml-1 shrink-0">
                 <span className="w-0.5 bg-[#2d5a37] h-2 animate-bounce" />

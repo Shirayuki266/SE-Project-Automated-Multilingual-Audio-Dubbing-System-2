@@ -2,22 +2,9 @@ import { GoogleGenAI, Type } from '@google/genai';
 import { db } from '../repositories/db.js';
 import { ttsService } from './ttsService.js';
 import { POITranslation } from '../types.js';
+import { SUPPORTED_LANGUAGES, TARGET_TRANSLATION_LANGUAGES } from '../../config/languages.js';
 
-export const TARGET_LANGUAGES = [
-  { code: 'vi', label: 'Tiếng Việt', flag: '🇻🇳' },
-  { code: 'en', label: 'English', flag: '🇬🇧' },
-  { code: 'zh', label: '中文 (Mandarin)', flag: '🇨🇳' },
-  { code: 'ja', label: '日本語 (Japanese)', flag: '🇯🇵' },
-  { code: 'ko', label: '한국어 (Korean)', flag: '🇰🇷' },
-  { code: 'fr', label: 'Français (French)', flag: '🇫🇷' },
-  { code: 'de', label: 'Deutsch (German)', flag: '🇩🇪' },
-  { code: 'es', label: 'Español (Spanish)', flag: '🇪🇸' },
-  { code: 'ru', label: 'Русский (Russian)', flag: '🇷🇺' },
-  { code: 'th', label: 'ไทย (Thai)', flag: '🇹🇭' },
-  { code: 'id', label: 'Bahasa Indonesia', flag: '🇮🇩' },
-  { code: 'it', label: 'Italiano (Italian)', flag: '🇮🇹' },
-  { code: 'hi', label: 'हिन्दी (Hindi)', flag: '🇮🇳' },
-];
+export const TARGET_LANGUAGES = SUPPORTED_LANGUAGES;
 
 export interface LocalizePOIRequest {
   poiId: string;
@@ -25,6 +12,15 @@ export interface LocalizePOIRequest {
   intro_vi?: string;
   description_vi: string;
   generateAudio?: boolean;
+  forceOverwriteManual?: boolean;
+}
+
+export interface LanguageLocalizationStatus {
+  lang: string;
+  label: string;
+  status: 'success' | 'skipped_manual' | 'failed';
+  audioGenerated: boolean;
+  error?: string;
 }
 
 export interface LocalizePOIResult {
@@ -33,7 +29,44 @@ export interface LocalizePOIResult {
   totalLanguages: number;
   translations: Record<string, POITranslation>;
   audioGeneratedCount: number;
+  languageStatuses: LanguageLocalizationStatus[];
+  failedLanguages: Array<{ lang: string; error: string }>;
   message: string;
+}
+
+async function withRetry<T>(fn: () => Promise<T>, maxRetries: number = 2, baseDelayMs: number = 1000): Promise<T> {
+  let lastError: any;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err: any) {
+      lastError = err;
+      if (attempt < maxRetries) {
+        await new Promise((resolve) => setTimeout(resolve, baseDelayMs * (attempt + 1)));
+      }
+    }
+  }
+  throw lastError;
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let nextIndex = 0;
+
+  const runWorker = async () => {
+    while (nextIndex < items.length) {
+      const current = nextIndex++;
+      results[current] = await worker(items[current]);
+    }
+  };
+
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, () => runWorker());
+  await Promise.all(workers);
+  return results;
 }
 
 export class LocalizationService {
@@ -67,17 +100,81 @@ export class LocalizationService {
   }
 
   /**
+   * Regenerates MP3 audio for a single POI + language (used when Admin edits text manually).
+   */
+  public async regenerateSingleAudio(poiId: string, lang: string) {
+    const poi = db.getRichPOIById(poiId);
+    if (!poi) {
+      throw new Error(`Không tìm thấy điểm POI với mã "${poiId}".`);
+    }
+    const normalizedCode = lang.toLowerCase() === 'zh-cn' ? 'zh' : lang.toLowerCase();
+    const trans = poi.translations[normalizedCode];
+    if (!trans) {
+      throw new Error(`Chưa có bản dịch cho ngôn ngữ "${lang}". Vui lòng lưu bài viết trước.`);
+    }
+
+    const fullText = [
+      this.cleanTextForTTS(trans.title),
+      this.cleanTextForTTS(trans.introduction || ''),
+      this.cleanTextForTTS(trans.description),
+    ]
+      .filter(Boolean)
+      .join('. ');
+
+    const synthResult = await withRetry(
+      () =>
+        ttsService.synthesizeSpeech({
+          text: fullText,
+          poiId,
+          lang: normalizedCode,
+          forceRegenerate: true,
+        }),
+      1,
+      800
+    );
+
+    if (!synthResult.success || !synthResult.audioUrl) {
+      throw new Error(synthResult.message || `Không thể tạo lại audio cho ngôn ngữ ${lang}`);
+    }
+
+    const updatedTrans: POITranslation = {
+      ...trans,
+      audio_url: synthResult.audioUrl,
+      updated_at: new Date().toISOString(),
+    };
+    db.saveTranslation(updatedTrans);
+
+    return {
+      success: true,
+      poiId,
+      lang: normalizedCode,
+      audioUrl: synthResult.audioUrl,
+      bytes: synthResult.bytes,
+      message: `Đã tạo lại file Audio MP3 cho [${normalizedCode.toUpperCase()}] thành công.`,
+    };
+  }
+
+  /**
    * 1-Click AI Localization:
-   * Takes original Vietnamese content and uses Gemini 3.8 Flash to generate 12 languages.
-   * Auto-cleans TTS artifacts, saves to database, and pre-generates cached MP3 audio files.
+   * - Uses centralized SUPPORTED_LANGUAGES config (12 target languages).
+   * - Respects `is_manually_edited` so manual edits are never overwritten unless `forceOverwriteManual` is true.
+   * - Uses Gemini structured JSON output + retry + concurrency-limited audio synthesis + per-language status.
    */
   public async localizePOI(request: LocalizePOIRequest): Promise<LocalizePOIResult> {
-    const { poiId, title_vi, intro_vi = '', description_vi, generateAudio = true } = request;
+    const {
+      poiId,
+      title_vi,
+      intro_vi = '',
+      description_vi,
+      generateAudio = true,
+      forceOverwriteManual = false,
+    } = request;
 
     if (!title_vi || !description_vi) {
       throw new Error('Tiêu đề và nội dung thuyết minh gốc (Tiếng Việt) là bắt buộc.');
     }
 
+    const existingPoi = db.getRichPOIById(poiId);
     const cleanTitleVi = this.cleanTextForTTS(title_vi);
     const cleanIntroVi = this.cleanTextForTTS(intro_vi || description_vi.slice(0, 120));
     const cleanDescVi = this.cleanTextForTTS(description_vi);
@@ -92,6 +189,8 @@ export class LocalizationService {
       description: cleanDescVi,
       audio_url: `/audio/${poiId}-vi.mp3`,
       is_ai_generated: false,
+      is_manually_edited: true,
+      updated_at: new Date().toISOString(),
     };
     db.saveTranslation(viTransRecord);
 
@@ -99,22 +198,44 @@ export class LocalizationService {
       vi: viTransRecord,
     };
 
+    const languageStatuses: LanguageLocalizationStatus[] = [];
+    const failedLanguages: Array<{ lang: string; error: string }> = [];
+    let audioGeneratedCount = 0;
+
     // Pre-generate Vietnamese Audio
+    let viAudioOk = false;
     if (generateAudio) {
       try {
         const fullViText = [cleanTitleVi, cleanIntroVi, cleanDescVi].filter(Boolean).join('. ');
-        await ttsService.synthesizeSpeech({
-          text: fullViText,
-          poiId,
-          lang: 'vi',
-        });
-      } catch (e) {
-        console.warn('[LocalizationService] VI Audio synthesis notice:', e);
+        const res = await withRetry(
+          () =>
+            ttsService.synthesizeSpeech({
+              text: fullViText,
+              poiId,
+              lang: 'vi',
+              forceRegenerate: true,
+            }),
+          1,
+          800
+        );
+        viAudioOk = Boolean(res.success);
+        if (viAudioOk) audioGeneratedCount++;
+      } catch (e: any) {
+        console.warn('[LocalizationService] VI Audio synthesis notice:', e?.message || e);
       }
     }
+    languageStatuses.push({
+      lang: 'vi',
+      label: 'Tiếng Việt',
+      status: 'success',
+      audioGenerated: viAudioOk,
+    });
 
-    // Languages to generate with AI (excluding Vietnamese)
-    const targetCodes = ['en', 'zh', 'ja', 'ko', 'fr', 'de', 'es', 'ru', 'th', 'id', 'it', 'hi'];
+    // Filter languages that need AI translation (skip manually edited unless forced)
+    const languagesToTranslate = TARGET_TRANSLATION_LANGUAGES.filter((cfg) => {
+      const existing = existingPoi?.translations[cfg.code];
+      return forceOverwriteManual || !existing?.is_manually_edited;
+    });
 
     let aiGeneratedItems: Array<{
       lang: string;
@@ -123,24 +244,18 @@ export class LocalizationService {
       description: string;
     }> = [];
 
-    // Call Gemini 3.8 Flash for 12 languages with structured JSON schema
-    if (this.ai) {
+    let batchAiError: string | undefined;
+
+    if (this.ai && languagesToTranslate.length > 0) {
       try {
+        const langListText = languagesToTranslate
+          .map((l) => `- ${l.geminiCode} (${l.label})`)
+          .join('\n');
+
         const prompt = `
 Bạn là chuyên gia dịch thuật và hướng dẫn viên du lịch văn hóa Phật giáo chuyên nghiệp tại Việt Nam Quốc Tự.
-Hãy dịch nội dung thuyết minh điểm chiêm bái sau sang 12 ngôn ngữ:
-- en (English)
-- zh (Chinese Mandarin Simplified)
-- ja (Japanese)
-- ko (Korean)
-- fr (French)
-- de (German)
-- es (Spanish)
-- ru (Russian)
-- th (Thai)
-- id (Indonesian)
-- it (Italian)
-- hi (Hindi)
+Hãy dịch nội dung thuyết minh điểm chiêm bái sau sang các ngôn ngữ:
+${langListText}
 
 Nội dung gốc (Tiếng Việt):
 - Tiêu đề: ${cleanTitleVi}
@@ -148,101 +263,155 @@ Nội dung gốc (Tiếng Việt):
 - Thuyết minh chi tiết: ${cleanDescVi}
 
 YÊU CẦU CHẤT LƯỢNG NGHIÊM NGẶT:
-1. Văn phong tự nhiên, truyền cảm, trang trọng như lời hướng dẫn viên du lịch chuyên nghiệp tại ngôi đại tự linh thiêng.
-2. TUYỆT ĐỐI KHÔNG dùng ký tự đặc biệt (*, #, _, ~, [], emoji) trong bất kỳ trường nào để hệ thống đọc âm thanh TTS không bị vấp.
-3. Chuyển các con số quan trọng thành chữ hoặc định dạng dễ đọc nhất theo từng ngôn ngữ (ví dụ trong tiếng Việt: 13 tầng -> mười ba tầng, 63 mét -> sáu mươi ba mét; trong tiếng Anh: 13-story -> thirteen-story).
-4. Đảm bảo tên riêng Phật giáo được phiên âm hoặc dịch chuẩn mực, tôn kính.
+1. Văn phong tự nhiên, truyền cảm, trang trọng như lời hướng dẫn viên du lịch chuyên nghiệp.
+2. TUYỆT ĐỐI KHÔNG dùng ký tự đặc biệt (*, #, _, ~, [], emoji, markdown) trong bất kỳ trường nào để TTS không bị vấp.
+3. Viết các con số quan trọng thành chữ hoặc cách đọc tự nhiên theo từng ngôn ngữ (ví dụ: 13 tầng -> mười ba tầng / thirteen-story; 63m -> sáu mươi ba mét / sixty-three meters).
+4. Giữ nguyên hoặc phiên âm chuẩn mực tên riêng Phật giáo và địa danh (ví dụ: Việt Nam Quốc Tự, Bảo Tháp Đa Bảo, Đại Hùng Bửu Điện).
 `;
 
-        const response = await this.ai.models.generateContent({
-          model: 'gemini-3.8-flash',
-          contents: prompt,
-          config: {
-            systemInstruction: 'You are an elite multilingual cultural audio guide translator. Output strict JSON only matching the schema.',
-            responseMimeType: 'application/json',
-            responseSchema: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  lang: {
-                    type: Type.STRING,
-                    description: 'Language code: en, zh, ja, ko, fr, de, es, ru, th, id, it, hi',
-                  },
-                  title: {
-                    type: Type.STRING,
-                    description: 'Translated title of the POI without special characters',
-                  },
-                  introduction: {
-                    type: Type.STRING,
-                    description: '1-2 sentence overview introduction without special characters',
-                  },
-                  description: {
-                    type: Type.STRING,
-                    description: 'Full immersive tour guide narration without special characters',
+        const response = await withRetry(
+          () =>
+            this.ai!.models.generateContent({
+              model: 'gemini-3.8-flash',
+              contents: prompt,
+              config: {
+                systemInstruction: 'You are an elite multilingual cultural audio guide translator. Output strict JSON only matching the schema.',
+                responseMimeType: 'application/json',
+                responseSchema: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      lang: {
+                        type: Type.STRING,
+                        description: 'Target language code from the prompt list (e.g. en, ko, ja, zh-CN, fr, de, es, th, id, ru, hi, it)',
+                      },
+                      title: {
+                        type: Type.STRING,
+                        description: 'Translated title without special characters',
+                      },
+                      introduction: {
+                        type: Type.STRING,
+                        description: '1-2 sentence overview summary without special characters',
+                      },
+                      description: {
+                        type: Type.STRING,
+                        description: 'Full immersive tour guide narration without special characters',
+                      },
+                    },
+                    required: ['lang', 'title', 'introduction', 'description'],
                   },
                 },
-                required: ['lang', 'title', 'introduction', 'description'],
               },
-            },
-          },
-        });
+            }),
+          2,
+          1000
+        );
 
         const jsonStr = (response.text || '[]').trim();
-        aiGeneratedItems = JSON.parse(jsonStr);
+        const parsed = JSON.parse(jsonStr);
+        if (Array.isArray(parsed)) {
+          aiGeneratedItems = parsed;
+        }
       } catch (err: any) {
-        console.warn('[LocalizationService] Gemini batch translation notice, fallbacking to template translations:', err.message || err);
+        batchAiError = err?.message || 'Lỗi kết nối Gemini API';
+        console.warn('[LocalizationService] Gemini batch translation failed after retries:', batchAiError);
       }
     }
 
-    // Save and synthesize audio for all 11 languages
-    let audioGeneratedCount = 1; // Vietnamese already done
+    // Process each target language with concurrency limit = 3 for TTS audio generation
+    await mapWithConcurrency(TARGET_TRANSLATION_LANGUAGES, 3, async (cfg) => {
+      const existing = existingPoi?.translations[cfg.code];
 
-    for (const code of targetCodes) {
-      const aiItem = aiGeneratedItems.find((item) => item.lang.toLowerCase() === code);
-
-      let title = aiItem ? this.cleanTextForTTS(aiItem.title) : `${cleanTitleVi} (${code.toUpperCase()})`;
-      let introduction = aiItem ? this.cleanTextForTTS(aiItem.introduction) : cleanIntroVi;
-      let description = aiItem ? this.cleanTextForTTS(aiItem.description) : cleanDescVi;
-
-      // Fallback translations if AI was offline or incomplete
-      if (!aiItem) {
-        if (code === 'en') {
-          title = cleanTitleVi.replace(/Chánh Điện|Chính Điện/i, 'Main Sanctuary').replace(/Bảo Tháp/i, 'Thirteen-Story Stupa').replace(/Đại Hồng Chung/i, 'Great Sacred Bell').replace(/Tam Quan/i, 'Three Entrance Gate');
-          introduction = `Sacred Buddhist point of interest at Vietnam Quoc Tu Pagoda in Ho Chi Minh City.`;
-          description = `${cleanTitleVi}. Welcome to this holy sanctuary of Vietnamese Buddhism. ${cleanDescVi}`;
-        }
+      // Protect manually edited translations
+      if (!forceOverwriteManual && existing?.is_manually_edited) {
+        translationsMap[cfg.code] = existing;
+        languageStatuses.push({
+          lang: cfg.code,
+          label: cfg.label,
+          status: 'skipped_manual',
+          audioGenerated: Boolean(existing.audio_url),
+        });
+        return;
       }
 
+      const aiItem = aiGeneratedItems.find((item) => {
+        const c = (item.lang || '').toLowerCase();
+        return c === cfg.code.toLowerCase() || c === cfg.geminiCode.toLowerCase();
+      });
+
+      if (!aiItem && this.ai) {
+        const reason = batchAiError || `Gemini không trả về bản dịch hợp lệ cho [${cfg.code}]`;
+        failedLanguages.push({ lang: cfg.code, error: reason });
+        languageStatuses.push({
+          lang: cfg.code,
+          label: cfg.label,
+          status: 'failed',
+          audioGenerated: false,
+          error: reason,
+        });
+        return;
+      }
+
+      const title = aiItem ? this.cleanTextForTTS(aiItem.title) : `${cleanTitleVi} (${cfg.code.toUpperCase()})`;
+      const introduction = aiItem ? this.cleanTextForTTS(aiItem.introduction) : cleanIntroVi;
+      const description = aiItem ? this.cleanTextForTTS(aiItem.description) : cleanDescVi;
+
       const transRecord: POITranslation = {
-        translation_id: `trans-${poiId}-${code}`,
+        translation_id: `trans-${poiId}-${cfg.code}`,
         poi_id: poiId,
-        language_code: code,
+        language_code: cfg.code,
         title,
         introduction,
         description,
-        audio_url: `/audio/${poiId}-${code}.mp3`,
+        audio_url: `/audio/${poiId}-${cfg.ttsCode}.mp3`,
         is_ai_generated: true,
+        is_manually_edited: false,
+        updated_at: new Date().toISOString(),
       };
 
       db.saveTranslation(transRecord);
-      translationsMap[code] = transRecord;
+      translationsMap[cfg.code] = transRecord;
 
-      // Pre-synthesize MP3 audio using Cloud TTS Engine
+      let audioOk = false;
+      let audioErr: string | undefined;
       if (generateAudio) {
         try {
           const fullScript = [title, introduction, description].filter(Boolean).join('. ');
-          await ttsService.synthesizeSpeech({
-            text: fullScript,
-            poiId,
-            lang: code,
-          });
-          audioGeneratedCount++;
-        } catch (e) {
-          console.warn(`[LocalizationService] Audio synthesis notice for ${code}:`, e);
+          const synth = await withRetry(
+            () =>
+              ttsService.synthesizeSpeech({
+                text: fullScript,
+                poiId,
+                lang: cfg.ttsCode,
+                forceRegenerate: true,
+              }),
+            1,
+            800
+          );
+          audioOk = Boolean(synth.success);
+          if (audioOk) {
+            audioGeneratedCount++;
+            transRecord.audio_url = synth.audioUrl || transRecord.audio_url;
+            db.saveTranslation(transRecord);
+          } else {
+            audioErr = synth.message || 'TTS fallback sang thiết bị';
+          }
+        } catch (e: any) {
+          audioErr = e?.message || 'Lỗi tạo audio';
         }
       }
-    }
+
+      languageStatuses.push({
+        lang: cfg.code,
+        label: cfg.label,
+        status: 'success',
+        audioGenerated: audioOk,
+        error: audioErr,
+      });
+    });
+
+    const successCount = languageStatuses.filter((s) => s.status !== 'failed').length;
 
     return {
       success: true,
@@ -250,7 +419,12 @@ YÊU CẦU CHẤT LƯỢNG NGHIÊM NGẶT:
       totalLanguages: Object.keys(translationsMap).length,
       translations: translationsMap,
       audioGeneratedCount,
-      message: `Đã tạo thành công ${Object.keys(translationsMap).length}/12 bản dịch đa ngôn ngữ và khởi tạo ${audioGeneratedCount} file Audio MP3 chuẩn chất lượng cao.`,
+      languageStatuses,
+      failedLanguages,
+      message:
+        failedLanguages.length > 0
+          ? `Hoàn tất ${successCount}/${SUPPORTED_LANGUAGES.length} ngôn ngữ (${audioGeneratedCount} file MP3). Có ${failedLanguages.length} ngôn ngữ gặp lỗi.`
+          : `Đã tạo thành công ${Object.keys(translationsMap).length}/${SUPPORTED_LANGUAGES.length} ngôn ngữ và ${audioGeneratedCount} file Audio MP3.`,
     };
   }
 }

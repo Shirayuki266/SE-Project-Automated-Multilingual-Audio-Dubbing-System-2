@@ -99,6 +99,7 @@ export class POIService {
     if (!existing) {
       throw new Error(`Không tìm thấy điểm POI với mã "${poiId}".`);
     }
+    const existingTrans = existing.translations[lang.toLowerCase()];
     const trans = {
       translation_id: `trans-${poiId}-${lang.toLowerCase()}`,
       poi_id: poiId,
@@ -106,8 +107,10 @@ export class POIService {
       title,
       introduction: intro || desc.slice(0, 100),
       description: desc,
-      audio_url: audioUrl || undefined,
+      audio_url: audioUrl || existingTrans?.audio_url || `/audio/${poiId}-${lang.toLowerCase()}.mp3`,
       is_ai_generated: false,
+      is_manually_edited: true,
+      updated_at: new Date().toISOString(),
     };
     poiRepository.saveTranslation(trans);
     return poiRepository.findById(poiId);

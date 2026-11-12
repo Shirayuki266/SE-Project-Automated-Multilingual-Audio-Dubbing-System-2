@@ -31,12 +31,14 @@ export interface POIEntity {
 export interface POITranslation {
   translation_id: string;
   poi_id: string;
-  language_code: string; // 'vi', 'en', 'zh', 'ja', 'ko', 'fr', 'de', 'es', 'ru', 'th', 'id', 'it'
+  language_code: string; // 'vi', 'en', 'zh', 'ja', 'ko', 'fr', 'de', 'es', 'ru', 'th', 'id', 'it', 'hi'
   title: string;
   introduction?: string; // Giới thiệu tóm tắt điểm di tích
   description: string;   // Nội dung bài thuyết minh chi tiết
   audio_url?: string;
   is_ai_generated?: boolean;
+  is_manually_edited?: boolean;
+  updated_at?: string;
 }
 
 export interface POIMedia {

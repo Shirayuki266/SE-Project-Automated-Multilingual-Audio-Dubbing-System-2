@@ -82,6 +82,7 @@ export interface SynthesizeOptions {
   voiceName?: string;
   speed?: number;
   style?: string;
+  forceRegenerate?: boolean;
 }
 
 export interface SynthesizeResult {
@@ -115,7 +116,7 @@ export class TTSService {
    * caches the MP3 on disk, and returns the public audio URL.
    */
   public async synthesizeSpeech(options: SynthesizeOptions): Promise<SynthesizeResult> {
-    const { text, poiId, lang = 'vi' } = options;
+    const { text, poiId, lang = 'vi', forceRegenerate = false } = options;
 
     if (!text || !text.trim()) {
       return { success: false, message: 'Text content is required for speech synthesis' };
@@ -131,7 +132,7 @@ export class TTSService {
     const audioUrl = `/audio/${filename}`;
 
     // 1. Check disk cache first (Vòng 1 - Instant zero latency playback)
-    if (fs.existsSync(filePath)) {
+    if (!forceRegenerate && fs.existsSync(filePath)) {
       try {
         const stats = fs.statSync(filePath);
         if (stats.size > 2000) {

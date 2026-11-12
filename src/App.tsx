@@ -3,14 +3,16 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, Suspense, lazy } from 'react';
 import { RichPOI } from './server/types.js';
-import { LanguageCode, speechEngine } from './utils/audioSpeech.js';
+import { LanguageCode, speechEngine, AudioPlaybackStatus } from './utils/audioSpeech.js';
 import { translations } from './translations/index.js';
 import { useGPSTracker } from './hooks/useGPSTracker.js';
 import { Header } from './components/Header.tsx';
 import { WelcomeModal } from './components/WelcomeModal.tsx';
-import { MapLibre3DCampusMap } from './components/MapLibre3DCampusMap.tsx';
+const MapLibre3DCampusMap = lazy(() =>
+  import('./components/MapLibre3DCampusMap.tsx').then((m) => ({ default: m.MapLibre3DCampusMap }))
+);
 import { TravelAssistantChatbot } from './components/TravelAssistantChatbot.tsx';
 import { AudioPlayerBar } from './components/AudioPlayerBar.tsx';
 import { POIDetailDrawer } from './components/POIDetailDrawer.tsx';
@@ -99,6 +101,9 @@ export default function App() {
   const [aiStatusMsg, setAiStatusMsg] = useState<string | null>(null);
   const [activeAudioLayer, setActiveAudioLayer] = useState<1 | 2 | 3>(1);
   const [activeLayerName, setActiveLayerName] = useState<string>('Vòng 1: File MP3 thu sẵn');
+  const [audioStatus, setAudioStatus] = useState<AudioPlaybackStatus>('idle');
+  const [audioStatusMessage, setAudioStatusMessage] = useState<string | undefined>(undefined);
+  const [autoplayBlocked, setAutoplayBlocked] = useState<boolean>(false);
 
   // Geofence alert toast
   const [geofenceToast, setGeofenceToast] = useState<{ poi: RichPOI; distance: number } | null>(null);
@@ -228,6 +233,9 @@ export default function App() {
       setAudioDuration(state.duration);
       if (state.activeLayer) setActiveAudioLayer(state.activeLayer);
       if (state.layerName) setActiveLayerName(state.layerName);
+      if (state.status) setAudioStatus(state.status);
+      setAudioStatusMessage(state.statusMessage);
+      setAutoplayBlocked(Boolean(state.autoplayBlocked));
     });
 
     return () => {
@@ -861,17 +869,25 @@ export default function App() {
             </div>
 
             {/* MapLibre GL JS 3D Vector & 4D Day/Night Campus Map */}
-            <MapLibre3DCampusMap
-              pois={pois}
-              currentLang={currentLang}
-              userLocation={userLocation}
-              activePoiId={activePOI?.poi_id || null}
-              onSelectPOI={(poi, autoPlay) => {
-                setActivePOI(poi);
-                if (autoPlay) handlePlayPOI(poi);
-                handleOpenDetail(poi);
-              }}
-            />
+            <Suspense
+              fallback={
+                <div className="w-full h-[380px] rounded-3xl bg-[#eef5f0] border border-[#e2eae4] flex items-center justify-center text-xs text-[#5c7362]">
+                  Đang tải bản đồ 3D/4D...
+                </div>
+              }
+            >
+              <MapLibre3DCampusMap
+                pois={pois}
+                currentLang={currentLang}
+                userLocation={userLocation}
+                activePoiId={activePOI?.poi_id || null}
+                onSelectPOI={(poi, autoPlay) => {
+                  setActivePOI(poi);
+                  if (autoPlay) handlePlayPOI(poi);
+                  handleOpenDetail(poi);
+                }}
+              />
+            </Suspense>
 
             {/* BOARDING PASS / THẺ CHIÊM BÁI ĐIỆN TỬ */}
             <div className="rounded-3xl overflow-hidden bg-white border border-[#e2eae4] shadow-xs">
@@ -981,6 +997,10 @@ export default function App() {
         }}
         activeLayer={activeAudioLayer}
         layerName={activeLayerName}
+        audioStatus={audioStatus}
+        statusMessage={audioStatusMessage}
+        autoplayBlocked={autoplayBlocked}
+        onRetryAutoplay={() => speechEngine.retryBlockedPlayback()}
       />
 
       {/* POI Detailed Bottom Drawer with Swipe-Down Gesture */}

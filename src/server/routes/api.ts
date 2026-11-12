@@ -44,6 +44,19 @@ router.put('/pois/:id', (req, res) => poiController.update(req, res));
 router.delete('/pois/:id', (req, res) => poiController.delete(req, res));
 router.post('/pois/:id/ai-translate', (req, res) => poiController.aiTranslate(req, res));
 router.put('/pois/:id/translations/:lang', (req, res) => poiController.saveTranslation(req, res));
+router.post('/pois/:id/translations/:lang/regenerate-audio', async (req, res) => {
+  try {
+    const token = req.headers.authorization?.replace('Bearer ', '') || '';
+    const { authService } = await import('../services/authService.js');
+    if (!authService.validateToken(token).valid) {
+      return res.status(403).json({ success: false, error: 'Yêu cầu quyền Admin để tạo lại audio.' });
+    }
+    const result = await localizationService.regenerateSingleAudio(req.params.id, req.params.lang);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(400).json({ success: false, error: err.message });
+  }
+});
 router.post('/pois/:id/media', (req, res) => poiController.addMedia(req, res));
 router.delete('/pois/:id/media/:mediaId', (req, res) => poiController.deleteMedia(req, res));
 
