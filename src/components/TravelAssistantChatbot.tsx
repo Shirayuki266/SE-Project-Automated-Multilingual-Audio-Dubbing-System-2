@@ -112,6 +112,9 @@ export const TravelAssistantChatbot: React.FC<TravelAssistantChatbotProps> = ({
         .slice(-6)
         .map((m) => ({ role: m.role, text: m.text }));
 
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 18000);
+
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -122,7 +125,9 @@ export const TravelAssistantChatbot: React.FC<TravelAssistantChatbotProps> = ({
           lang: currentLang,
           history,
         }),
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
 
       const data = await res.json();
 

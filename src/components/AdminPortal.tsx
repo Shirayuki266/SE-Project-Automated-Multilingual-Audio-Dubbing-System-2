@@ -135,6 +135,10 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [qrModalPoi, setQrModalPoi] = useState<RichPOI | null>(null);
   const [isLocalizingAll, setIsLocalizingAll] = useState<boolean>(false);
   const [localizeProgressMsg, setLocalizeProgressMsg] = useState<string>('');
+  const [localizeStatuses, setLocalizeStatuses] = useState<
+    Array<{ lang: string; label: string; status: 'success' | 'skipped_manual' | 'failed'; audioGenerated: boolean; error?: string }>
+  >([]);
+  const [isRegeneratingAudio, setIsRegeneratingAudio] = useState<boolean>(false);
   const [notificationMsg, setNotificationMsg] = useState<string | null>(null);
   const [mongoStatus, setMongoStatus] = useState<any>(null);
 
@@ -367,7 +371,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       const targetUrl = `${window.location.origin}/?poi=${encodeURIComponent(poi.code)}`;
       QRCode.toDataURL(targetUrl, {
         width: 600,
-        margin: 2,
+        margin: 4,
+        errorCorrectionLevel: 'H',
         color: { dark: '#1e3d25', light: '#ffffff' },
       }).then((dataUri) => {
         setQrPreviews((prev) => ({ ...prev, [poi.poi_id]: dataUri }));
@@ -720,7 +725,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     const targetUrl = `${window.location.origin}/?poi=${encodeURIComponent(poi.code)}`;
     QRCode.toDataURL(targetUrl, {
       width: 1024,
-      margin: 3,
+      margin: 4,
+      errorCorrectionLevel: 'H',
       color: { dark: '#1e3d25', light: '#ffffff' },
     }).then((dataUri) => {
       const link = document.createElement('a');
@@ -735,7 +741,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     const targetUrl = `${window.location.origin}/?poi=${encodeURIComponent(poi.code)}`;
     QRCode.toDataURL(targetUrl, {
       width: 1024,
-      margin: 3,
+      margin: 4,
+      errorCorrectionLevel: 'H',
       color: { dark: '#1e3d25', light: '#ffffff' },
     }).then((dataUri) => {
       const img = new Image();
@@ -783,6 +790,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     }
 
     setIsLocalizingAll(true);
+    setLocalizeStatuses([]);
     setLocalizeProgressMsg('Đang gọi Gemini 3.8 Flash biên dịch sang 12 ngôn ngữ & sinh file Audio MP3...');
 
     try {
@@ -806,6 +814,9 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         throw new Error(data.error || data.message || 'Lỗi tạo đa ngôn ngữ');
       }
 
+      if (Array.isArray(data.languageStatuses)) {
+        setLocalizeStatuses(data.languageStatuses);
+      }
       showNotify(data.message || 'Đã tạo thành công 12 ngôn ngữ và Audio MP3!');
       onRefreshPOIs();
     } catch (err: any) {
@@ -813,6 +824,29 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     } finally {
       setIsLocalizingAll(false);
       setLocalizeProgressMsg('');
+    }
+  };
+
+  const handleRegenerateSingleAudio = async () => {
+    if (!selectedArticlePoiId) return;
+    setIsRegeneratingAudio(true);
+    try {
+      const res = await fetch(`/api/pois/${selectedArticlePoiId}/translations/${selectedArticleLang}/regenerate-audio`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+        },
+      });
+      const data = await res.json();
+      if (!data.success) {
+        throw new Error(data.error || 'Không thể tạo lại audio');
+      }
+      showNotify(data.message || `Đã tạo lại Audio cho [${selectedArticleLang.toUpperCase()}]`);
+      onRefreshPOIs();
+    } catch (err: any) {
+      alert('Lỗi tạo lại audio: ' + err.message);
+    } finally {
+      setIsRegeneratingAudio(false);
     }
   };
 
@@ -2620,6 +2654,52 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 </div>
               </div>
 
+              {/* Per-Language Localization Status & Errors */}
+              {(isLocalizingAll || localizeStatuses.length > 0) && (
+                <div className="bg-white rounded-3xl p-4 border border-[#e2eae4] shadow-xs space-y-2.5">
+                  <div className="flex items-center justify-between text-xs font-bold text-[#1e3d25]">
+                    <span>{isLocalizingAll ? localizeProgressMsg : 'Kết quả tạo đa ngôn ngữ & Audio'}</span>
+                    {!isLocalizingAll && (
+                      <button
+                        type="button"
+                        onClick={() => setLocalizeStatuses([])}
+                        className="text-[11px] text-[#5c7362] hover:text-[#19231b]"
+                      >
+                        Đóng
+                      </button>
+                    )}
+                  </div>
+                  {localizeStatuses.length > 0 && (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                      {localizeStatuses.map((item) => (
+                        <div
+                          key={item.lang}
+                          className={`p-2 rounded-xl border text-[11px] ${
+                            item.status === 'failed'
+                              ? 'bg-rose-50 border-rose-200 text-rose-800'
+                              : item.status === 'skipped_manual'
+                              ? 'bg-amber-50 border-amber-200 text-amber-900'
+                              : 'bg-[#eef5f0] border-[#d6e7da] text-[#1e3d25]'
+                          }`}
+                          title={item.error || ''}
+                        >
+                          <div className="font-bold uppercase">{item.lang}</div>
+                          <div className="truncate">
+                            {item.status === 'failed'
+                              ? `Lỗi: ${item.error || 'Thất bại'}`
+                              : item.status === 'skipped_manual'
+                              ? 'Giữ bản chỉnh tay'
+                              : item.audioGenerated
+                              ? 'Dịch + MP3 OK'
+                              : 'Dịch OK (TTS thiết bị)'}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Editor Workspace Card */}
               <div className="bg-white rounded-3xl p-5 border border-[#e2eae4] shadow-xs space-y-4">
                 <div className="flex items-center justify-between border-b border-[#e2eae4] pb-3">
@@ -2628,6 +2708,11 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                     <h3 className="font-serif font-bold text-base text-[#19231b]">
                       Nội Dung Bài Thuyết Minh [{selectedArticleLang.toUpperCase()}]
                     </h3>
+                    {pois.find((p) => p.poi_id === selectedArticlePoiId)?.translations[selectedArticleLang]?.is_manually_edited && (
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200">
+                        Đã chỉnh tay (được bảo vệ)
+                      </span>
+                    )}
                   </div>
 
                   <div className="flex items-center gap-2 text-[11px] text-[#7a8e80]">
@@ -2718,7 +2803,18 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                     )}
                   </button>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleRegenerateSingleAudio}
+                      disabled={isRegeneratingAudio || isSavingArticle}
+                      className="px-4 py-2 rounded-full bg-amber-50 border border-amber-300 text-amber-900 text-xs font-bold hover:bg-amber-100 shadow-xs transition-colors flex items-center gap-1.5 disabled:opacity-50"
+                      title="Tạo lại file Audio MP3 riêng cho ngôn ngữ đang chọn sau khi chỉnh sửa"
+                    >
+                      <Mic className={`w-4 h-4 ${isRegeneratingAudio ? 'animate-spin' : ''}`} />
+                      <span>{isRegeneratingAudio ? 'Đang tạo audio...' : 'Tạo lại audio'}</span>
+                    </button>
+
                     <button
                       type="button"
                       onClick={handleAiTranslateArticle}

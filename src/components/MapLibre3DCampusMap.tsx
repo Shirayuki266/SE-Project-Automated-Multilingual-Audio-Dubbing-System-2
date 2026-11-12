@@ -266,12 +266,29 @@ export const MapLibre3DCampusMap: React.FC<MapLibre3DCampusMapProps> = ({
   // Map Controls State
   const [mapStyle, setMapStyle] = useState<'street' | 'satellite'>('street');
   const [is3DMode, setIs3DMode] = useState<boolean>(true);
-  const [isNightMode, setIsNightMode] = useState<boolean>(() => {
+  const [manualNightOverride, setManualNightOverride] = useState<boolean | null>(null);
+  const [autoIsNight, setAutoIsNight] = useState<boolean>(() => {
     const hour = new Date().getHours();
     return hour >= 18 || hour < 6;
   });
+  const isNightMode = manualNightOverride !== null ? manualNightOverride : autoIsNight;
+  const setIsNightMode = (val: boolean | ((prev: boolean) => boolean)) => {
+    setManualNightOverride((prev) => {
+      const current = prev !== null ? prev : autoIsNight;
+      return typeof val === 'function' ? val(current) : val;
+    });
+  };
   const [showPilgrimageRoute, setShowPilgrimageRoute] = useState<boolean>(true);
   const [isMapReady, setIsMapReady] = useState<boolean>(false);
+
+  // Auto-sync 4D Day/Night every 60s based on user local clock
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const hour = new Date().getHours();
+      setAutoIsNight(hour >= 18 || hour < 6);
+    }, 60000);
+    return () => clearInterval(timer);
+  }, []);
 
 function createGeoJSONCircle(center: [number, number], radiusInMeters: number, points: number = 48): [number, number][] {
   const coords: [number, number][] = [];
@@ -327,43 +344,87 @@ function buildGeofenceGeoJSON(poisList: RichPOI[], activeId: string | null): { a
   };
 }
 
-  // Helper to construct MapLibre Style Specification (allows zoom up to 22 without blank screens)
+  // Helper to construct MapLibre Style Specification (allows over-zoom up to 22 without blank screens)
   const getMapStyleConfig = (type: 'street' | 'satellite', isNight: boolean): StyleSpecification => {
-    const rasterUrl =
-      type === 'satellite'
-        ? 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+    const mapTilerKey = import.meta.env.VITE_MAPTILER_KEY as string | undefined;
+    const hasMapTiler = Boolean(mapTilerKey && mapTilerKey.trim().length > 0);
+
+    const rasterUrl = hasMapTiler
+      ? type === 'satellite'
+        ? `https://api.maptiler.com/maps/hybrid/256/{z}/{x}/{y}.jpg?key=${mapTilerKey}`
         : isNight
-        ? 'https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png'
-        : 'https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png';
+        ? `https://api.maptiler.com/maps/streets-v2-dark/256/{z}/{x}/{y}.png?key=${mapTilerKey}`
+        : `https://api.maptiler.com/maps/streets-v2/256/{z}/{x}/{y}.png?key=${mapTilerKey}`
+      : type === 'satellite'
+      ? 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+      : isNight
+      ? 'https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png'
+      : 'https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png';
+
+    // Actual native maxzoom of tile providers so MapLibre overzooms cleanly up to z22 without 404/blank tiles
+    const nativeMaxZoom = type === 'satellite' ? (hasMapTiler ? 19 : 18) : 19;
+
+    const sources: StyleSpecification['sources'] = {
+      'base-tiles': {
+        type: 'raster',
+        tiles: [rasterUrl],
+        tileSize: 256,
+        maxzoom: nativeMaxZoom,
+        attribution: hasMapTiler
+          ? '&copy; Việt Nam Quốc Tự · MapTiler · OpenStreetMap'
+          : '&copy; Việt Nam Quốc Tự · OpenStreetMap · CARTO · Esri',
+      },
+      'buildings-3d-source': {
+        type: 'geojson',
+        data: VNQT_3D_BUILDINGS_GEOJSON,
+      },
+      'pilgrimage-trail-source': {
+        type: 'geojson',
+        data: PILGRIMAGE_TRAIL_GEOJSON,
+      },
+      'geofence-circles-source': {
+        type: 'geojson',
+        data: buildGeofenceGeoJSON(pois, activePoiId).all,
+      },
+      'geofence-active-source': {
+        type: 'geojson',
+        data: buildGeofenceGeoJSON(pois, activePoiId).active,
+      },
+    };
+
+    if (hasMapTiler) {
+      sources['terrain-dem'] = {
+        type: 'raster-dem',
+        url: `https://api.maptiler.com/tiles/terrain-rgb-v2/tiles.json?key=${mapTilerKey}`,
+        tileSize: 256,
+      };
+    }
 
     return {
       version: 8,
-      sources: {
-        'base-tiles': {
-          type: 'raster',
-          tiles: [rasterUrl],
-          tileSize: 256,
-          maxzoom: 19, // Tiles cap at 19, but MapLibre overzooms to 22+ smoothly
-          attribution: '&copy; Việt Nam Quốc Tự · OpenStreetMap · CARTO · Esri',
-        },
-        'buildings-3d-source': {
-          type: 'geojson',
-          data: VNQT_3D_BUILDINGS_GEOJSON,
-        },
-        'pilgrimage-trail-source': {
-          type: 'geojson',
-          data: PILGRIMAGE_TRAIL_GEOJSON,
-        },
-        'geofence-circles-source': {
-          type: 'geojson',
-          data: buildGeofenceGeoJSON(pois, activePoiId).all,
-        },
-        'geofence-active-source': {
-          type: 'geojson',
-          data: buildGeofenceGeoJSON(pois, activePoiId).active,
-        },
+      light: {
+        anchor: 'viewport',
+        color: isNight ? '#93c5fd' : '#fffbeb',
+        intensity: isNight ? 0.35 : 0.65,
+        position: isNight ? [1.5, 180, 30] : [1.15, 135, 45],
       },
+      ...(hasMapTiler
+        ? {
+            terrain: {
+              source: 'terrain-dem',
+              exaggeration: 1.2,
+            },
+          }
+        : {}),
+      sources,
       layers: [
+        {
+          id: 'background-layer',
+          type: 'background',
+          paint: {
+            'background-color': isNight ? '#0f172a' : '#eef5f0',
+          },
+        },
         {
           id: 'base-tiles-layer',
           type: 'raster',
@@ -480,6 +541,10 @@ function buildGeofenceGeoJSON(poisList: RichPOI[], activeId: string | null): { a
       maxZoom: 22, // Fixes overzoom blank screen: supports zoom up to 22
       pitch: is3DMode ? 55 : 0, // Default 55° pitch for full 3D extruded view
       bearing: -15, // Oriented slightly to frame Tam Quan and Main Hall
+      touchZoomRotate: true,
+      touchPitch: true,
+      dragRotate: true,
+      maxTileCacheSize: 50,
     });
 
     map.addControl(new NavigationControl({ visualizePitch: true }), 'top-right');
@@ -492,6 +557,12 @@ function buildGeofenceGeoJSON(poisList: RichPOI[], activeId: string | null): { a
     mapRef.current = map;
 
     return () => {
+      markersRef.current.forEach((m) => m.remove());
+      markersRef.current = [];
+      if (userMarkerRef.current) {
+        userMarkerRef.current.remove();
+        userMarkerRef.current = null;
+      }
       map.remove();
       mapRef.current = null;
     };
@@ -499,9 +570,24 @@ function buildGeofenceGeoJSON(poisList: RichPOI[], activeId: string | null): { a
 
   // Sync style switch (Street vs Satellite & Day vs Night)
   useEffect(() => {
-    if (!mapRef.current) return;
+    const map = mapRef.current;
+    if (!map) return;
     const style = getMapStyleConfig(mapStyle, isNightMode);
-    mapRef.current.setStyle(style);
+    map.setStyle(style);
+    map.once('style.load', () => {
+      const vis = showPilgrimageRoute ? 'visible' : 'none';
+      if (map.getLayer('pilgrimage-trail-line')) {
+        map.setLayoutProperty('pilgrimage-trail-line', 'visibility', vis);
+      }
+      if (map.getLayer('pilgrimage-trail-casing')) {
+        map.setLayoutProperty('pilgrimage-trail-casing', 'visibility', vis);
+      }
+      const { all, active } = buildGeofenceGeoJSON(pois, activePoiId);
+      const allSource = map.getSource('geofence-circles-source') as any;
+      if (allSource && typeof allSource.setData === 'function') allSource.setData(all);
+      const activeSource = map.getSource('geofence-active-source') as any;
+      if (activeSource && typeof activeSource.setData === 'function') activeSource.setData(active);
+    });
   }, [mapStyle, isNightMode]);
 
   // Sync 3D pitch mode

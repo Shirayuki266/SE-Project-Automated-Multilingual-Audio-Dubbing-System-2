@@ -121,6 +121,8 @@ const LANG_VOICE_MAP: Record<LanguageCode, string[]> = {
   hi: ['hi-IN', 'hi', 'hindi'],
 };
 
+export type AudioPlaybackStatus = 'idle' | 'loading' | 'playing' | 'paused' | 'blocked' | 'error';
+
 export interface AudioEngineState {
   isSpeaking: boolean;
   isPaused: boolean;
@@ -135,6 +137,9 @@ export interface AudioEngineState {
   totalChunks?: number;
   activeLayer?: 1 | 2 | 3;
   layerName?: string;
+  status?: AudioPlaybackStatus;
+  statusMessage?: string;
+  autoplayBlocked?: boolean;
 }
 
 /**
@@ -229,8 +234,15 @@ export class AudioSpeechEngine {
   private synth: SpeechSynthesis | null = null;
   private currentUtterance: SpeechSynthesisUtterance | null = null;
   private currentAudioElement: HTMLAudioElement | null = null;
+  private sharedAudioContext: AudioContext | null = null;
+  private activeBufferSource: AudioBufferSourceNode | null = null;
   private isPaused: boolean = false;
   private isSpeaking: boolean = false;
+  private playbackStatus: AudioPlaybackStatus = 'idle';
+  private statusMessage?: string;
+  private autoplayBlocked: boolean = false;
+  private pendingBlockedPlayback: (() => void) | null = null;
+  private fetchTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
 
   private selectedEngine: VoiceEngineId = 'chi-google';
   private speechRate: number = 1.0;
@@ -277,6 +289,14 @@ export class AudioSpeechEngine {
         }
       });
     }
+
+    if (typeof window !== 'undefined') {
+      const stopOnLeave = () => {
+        this.stop();
+      };
+      window.addEventListener('pagehide', stopOnLeave);
+      window.addEventListener('beforeunload', stopOnLeave);
+    }
   }
 
   private setupGlobalAutoplayListener() {
@@ -295,32 +315,46 @@ export class AudioSpeechEngine {
   }
 
   public primeAutoplay(): boolean {
-    if (this.isAutoplayPrimed || !this.synth) return true;
+    if (this.isAutoplayPrimed) {
+      if (this.sharedAudioContext && this.sharedAudioContext.state === 'suspended') {
+        this.sharedAudioContext.resume().catch(() => {});
+      }
+      return true;
+    }
 
     try {
-      if (this.synth.paused) {
-        this.synth.resume();
+      if (this.synth) {
+        if (this.synth.paused) {
+          this.synth.resume();
+        }
+        const silentUtterance = new SpeechSynthesisUtterance(' ');
+        silentUtterance.volume = 0.001;
+        silentUtterance.rate = 2.0;
+        silentUtterance.pitch = 1.0;
+        silentUtterance.lang = 'vi-VN';
+        this.synth.speak(silentUtterance);
       }
-
-      const silentUtterance = new SpeechSynthesisUtterance(' ');
-      silentUtterance.volume = 0.001;
-      silentUtterance.rate = 2.0;
-      silentUtterance.pitch = 1.0;
-      silentUtterance.lang = 'vi-VN';
-      this.synth.speak(silentUtterance);
 
       try {
         const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
         if (AudioCtx) {
-          const ctx = new AudioCtx();
-          if (ctx.state === 'suspended') {
-            ctx.resume().catch(() => {});
+          if (!this.sharedAudioContext) {
+            this.sharedAudioContext = new AudioCtx();
           }
-          const buf = ctx.createBuffer(1, 1, 22050);
-          const src = ctx.createBufferSource();
+          if (this.sharedAudioContext.state === 'suspended') {
+            this.sharedAudioContext.resume().catch(() => {});
+          }
+          const buf = this.sharedAudioContext.createBuffer(1, 1, 22050);
+          const src = this.sharedAudioContext.createBufferSource();
           src.buffer = buf;
-          src.connect(ctx.destination);
+          src.connect(this.sharedAudioContext.destination);
           src.start(0);
+          this.activeBufferSource = src;
+          src.onended = () => {
+            if (this.activeBufferSource === src) {
+              this.activeBufferSource = null;
+            }
+          };
         }
       } catch {}
 
@@ -425,6 +459,9 @@ export class AudioSpeechEngine {
         totalChunks: this.textChunks.length,
         activeLayer: this.activeLayer,
         layerName: this.layerName,
+        status: this.playbackStatus,
+        statusMessage: this.statusMessage,
+        autoplayBlocked: this.autoplayBlocked,
       });
     }
   }
@@ -679,6 +716,31 @@ export class AudioSpeechEngine {
     this.playNarration(text, lang, title, false, poiId, audioUrl, introText);
   }
 
+  private isAutoplayError(err: any): boolean {
+    if (!err) return false;
+    const name = String(err.name || '');
+    const msg = String(err.message || '').toLowerCase();
+    return name === 'NotAllowedError' || msg.includes('notallowed') || msg.includes('user gesture') || msg.includes('interact');
+  }
+
+  public retryBlockedPlayback() {
+    this.primeAutoplay();
+    const pending = this.pendingBlockedPlayback;
+    this.pendingBlockedPlayback = null;
+    this.autoplayBlocked = false;
+    if (pending) {
+      pending();
+    } else if (this.currentAudioElement) {
+      this.currentAudioElement.play().then(() => {
+        this.isSpeaking = true;
+        this.isPaused = false;
+        this.playbackStatus = 'playing';
+        this.statusMessage = 'Đang phát thuyết minh';
+        this.notify();
+      }).catch(() => {});
+    }
+  }
+
   /**
    * VÒNG 1: Ưu tiên cao nhất - File MP3 thu sẵn / Cached Audio
    */
@@ -693,17 +755,31 @@ export class AudioSpeechEngine {
 
     this.activeLayer = 1;
     this.layerName = 'Vòng 1: File MP3 thu sẵn / Cached';
+    this.playbackStatus = 'loading';
+    this.statusMessage = 'Đang tải âm thanh thu sẵn...';
+    this.autoplayBlocked = false;
+    this.pendingBlockedPlayback = null;
     this.isSpeaking = true;
     this.isPaused = false;
     this.notify();
 
     try {
       const audio = new Audio(url);
+      audio.preload = 'auto';
+      audio.playbackRate = this.speechRate || 1.0;
       this.currentAudioElement = audio;
 
       audio.onloadedmetadata = () => {
         if (this.sessionToken !== expectedSession) return;
         this.estimatedDuration = Math.max(10, Math.round(audio.duration || 45));
+        this.notify();
+      };
+
+      audio.onplaying = () => {
+        if (this.sessionToken !== expectedSession) return;
+        this.playbackStatus = 'playing';
+        this.statusMessage = 'Đang phát từ file thu sẵn';
+        this.autoplayBlocked = false;
         this.notify();
       };
 
@@ -730,7 +806,21 @@ export class AudioSpeechEngine {
 
       audio.play().catch((e) => {
         if (this.sessionToken !== expectedSession) return;
-        console.warn('[Audio 3-Layer] Vòng 1 autoplay prevented or failed:', e);
+        if (this.isAutoplayError(e)) {
+          console.warn('[Audio 3-Layer] Vòng 1 bị chặn autoplay (NotAllowedError):', e);
+          this.isSpeaking = false;
+          this.isPaused = false;
+          this.playbackStatus = 'blocked';
+          this.autoplayBlocked = true;
+          this.statusMessage = 'Trình duyệt chặn tự phát. Chạm "Phát âm thanh" để nghe.';
+          this.pendingBlockedPlayback = () => {
+            if (this.sessionToken !== expectedSession) return;
+            this.attemptLayer1Playback(url, fallbackText, lang, poiId, expectedSession);
+          };
+          this.notify();
+          return;
+        }
+        console.warn('[Audio 3-Layer] Vòng 1 play failed, chuyển sang Vòng 2:', e);
         if (this.currentAudioElement === audio) {
           this.currentAudioElement = null;
         }
@@ -757,18 +847,32 @@ export class AudioSpeechEngine {
     // If device is offline, skip directly to Vòng 3
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
       console.warn('[Audio 3-Layer] Thiết bị đang offline. Chuyển thẳng sang Vòng 3 (On-device Web Speech API).');
-      this.attemptLayer3Playback(text, lang, expectedSession);
+      this.attemptLayer3Playback(text, lang, expectedSession, 'Thiết bị ngoại tuyến — đã chuyển sang giọng đọc thiết bị');
       return;
     }
 
     this.activeLayer = 2;
     this.layerName = 'Vòng 2: Cloud TTS API (Google Engine)';
+    this.playbackStatus = 'loading';
+    this.statusMessage = 'Đang tạo giọng đọc Cloud TTS...';
+    this.autoplayBlocked = false;
     this.isSpeaking = true;
     this.isPaused = false;
     this.notify();
 
     const voiceName = this.selectedEngine === 'gemini-charon' ? 'Charon' : 'Kore';
-    this.currentAbortController = new AbortController();
+    const controller = new AbortController();
+    this.currentAbortController = controller;
+
+    if (this.fetchTimeoutTimer) {
+      clearTimeout(this.fetchTimeoutTimer);
+    }
+    this.fetchTimeoutTimer = setTimeout(() => {
+      if (this.currentAbortController === controller) {
+        console.warn('[Audio 3-Layer] Vòng 2 timeout (12s). Chuyển sang Vòng 3.');
+        controller.abort('timeout');
+      }
+    }, 12000);
 
     fetch('/api/tts/synthesize', {
       method: 'POST',
@@ -779,23 +883,37 @@ export class AudioSpeechEngine {
         lang,
         voiceName,
       }),
-      signal: this.currentAbortController.signal,
+      signal: controller.signal,
     })
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return res.json();
       })
       .then((data) => {
+        if (this.fetchTimeoutTimer) {
+          clearTimeout(this.fetchTimeoutTimer);
+          this.fetchTimeoutTimer = null;
+        }
         if (this.sessionToken !== expectedSession) return;
 
         if (data.success && (data.audioUrl || data.dataUrl)) {
           const playSrc = data.audioUrl || data.dataUrl;
           const audio = new Audio(playSrc);
+          audio.preload = 'auto';
+          audio.playbackRate = this.speechRate || 1.0;
           this.currentAudioElement = audio;
 
           audio.onloadedmetadata = () => {
             if (this.sessionToken !== expectedSession) return;
             this.estimatedDuration = Math.max(10, Math.round(audio.duration || 45));
+            this.notify();
+          };
+
+          audio.onplaying = () => {
+            if (this.sessionToken !== expectedSession) return;
+            this.playbackStatus = 'playing';
+            this.statusMessage = data.isCached ? 'Đang phát từ bộ nhớ đệm Cloud TTS' : 'Đang phát giọng đọc Cloud TTS';
+            this.autoplayBlocked = false;
             this.notify();
           };
 
@@ -814,35 +932,63 @@ export class AudioSpeechEngine {
           audio.onerror = () => {
             if (this.sessionToken !== expectedSession) return;
             console.warn('[Audio 3-Layer] Vòng 2 audio playback failed. Chuyển sang Vòng 3 (Web Speech API).');
-            this.attemptLayer3Playback(text, lang, expectedSession);
+            this.attemptLayer3Playback(text, lang, expectedSession, 'Không phát được âm thanh Cloud — đã chuyển sang giọng đọc thiết bị');
           };
 
           audio.play().catch((e) => {
             if (this.sessionToken !== expectedSession) return;
+            if (this.isAutoplayError(e)) {
+              console.warn('[Audio 3-Layer] Vòng 2 bị chặn autoplay (NotAllowedError):', e);
+              this.isSpeaking = false;
+              this.isPaused = false;
+              this.playbackStatus = 'blocked';
+              this.autoplayBlocked = true;
+              this.statusMessage = 'Trình duyệt chặn tự phát. Chạm "Phát âm thanh" để nghe.';
+              this.pendingBlockedPlayback = () => {
+                if (this.sessionToken !== expectedSession) return;
+                this.attemptLayer1Playback(playSrc, text, lang, poiId, expectedSession);
+              };
+              this.notify();
+              return;
+            }
             console.warn('[Audio 3-Layer] Vòng 2 play() failed, falling back to Vòng 3:', e);
-            this.attemptLayer3Playback(text, lang, expectedSession);
+            this.attemptLayer3Playback(text, lang, expectedSession, 'Đã chuyển sang giọng đọc thiết bị');
           });
         } else {
           console.warn('[Audio 3-Layer] Vòng 2 TTS server returned no audio. Chuyển sang Vòng 3.');
-          this.attemptLayer3Playback(text, lang, expectedSession);
+          this.attemptLayer3Playback(text, lang, expectedSession, 'Cloud TTS chưa khả dụng — đã chuyển sang giọng đọc thiết bị');
         }
       })
       .catch((err) => {
+        if (this.fetchTimeoutTimer) {
+          clearTimeout(this.fetchTimeoutTimer);
+          this.fetchTimeoutTimer = null;
+        }
         if (this.sessionToken !== expectedSession) return;
-        if (err.name === 'AbortError') return;
-        console.warn('[Audio 3-Layer] Vòng 2 fetch error, chuyển sang Vòng 3:', err);
-        this.attemptLayer3Playback(text, lang, expectedSession);
+        if (err?.name === 'AbortError' && controller.signal.reason !== 'timeout') return;
+        console.warn('[Audio 3-Layer] Vòng 2 fetch error/timeout, chuyển sang Vòng 3:', err);
+        this.attemptLayer3Playback(text, lang, expectedSession, 'Cloud TTS quá thời gian/lỗi mạng — đã chuyển sang giọng đọc thiết bị');
       });
   }
 
   /**
    * VÒNG 3: Dự phòng cuối - On-device / Web Speech API (window.speechSynthesis)
    */
-  private attemptLayer3Playback(text: string, lang: LanguageCode, expectedSession: number) {
+  private attemptLayer3Playback(
+    text: string,
+    lang: LanguageCode,
+    expectedSession: number,
+    reasonMessage?: string
+  ) {
     if (this.sessionToken !== expectedSession) return;
 
     this.activeLayer = 3;
     this.layerName = 'Vòng 3: On-device Web Speech API';
+    this.playbackStatus = this.synth ? 'playing' : 'error';
+    this.statusMessage = this.synth
+      ? (reasonMessage || 'Đang phát bằng giọng đọc thiết bị')
+      : 'Trình duyệt không hỗ trợ giọng đọc thiết bị';
+    this.autoplayBlocked = false;
     this.notify();
 
     this.startChunkedSpeech(text, lang, 0);
@@ -1104,10 +1250,17 @@ export class AudioSpeechEngine {
 
   private stopPlaybackInternal() {
     this.sessionToken++;
+    this.pendingBlockedPlayback = null;
+    this.autoplayBlocked = false;
+
+    if (this.fetchTimeoutTimer) {
+      clearTimeout(this.fetchTimeoutTimer);
+      this.fetchTimeoutTimer = null;
+    }
 
     if (this.currentAbortController) {
       try {
-        this.currentAbortController.abort();
+        this.currentAbortController.abort('cancelled');
       } catch {}
       this.currentAbortController = null;
     }
@@ -1117,6 +1270,14 @@ export class AudioSpeechEngine {
       this.chunkWatchdogTimer = null;
     }
 
+    if (this.activeBufferSource) {
+      try {
+        this.activeBufferSource.stop();
+        this.activeBufferSource.disconnect();
+      } catch {}
+      this.activeBufferSource = null;
+    }
+
     if (this.currentAudioElement) {
       try {
         this.currentAudioElement.pause();
@@ -1124,6 +1285,10 @@ export class AudioSpeechEngine {
         this.currentAudioElement.onended = null;
         this.currentAudioElement.onerror = null;
         this.currentAudioElement.ontimeupdate = null;
+        this.currentAudioElement.onplaying = null;
+        this.currentAudioElement.onloadedmetadata = null;
+        this.currentAudioElement.removeAttribute('src');
+        this.currentAudioElement.load();
         this.currentAudioElement = null;
       } catch {}
     }
@@ -1170,12 +1335,20 @@ export class AudioSpeechEngine {
 
   private cleanup() {
     this.stopTimer();
+    if (this.fetchTimeoutTimer) {
+      clearTimeout(this.fetchTimeoutTimer);
+      this.fetchTimeoutTimer = null;
+    }
     if (this.chunkWatchdogTimer) {
       clearTimeout(this.chunkWatchdogTimer);
       this.chunkWatchdogTimer = null;
     }
     this.isSpeaking = false;
     this.isPaused = false;
+    this.playbackStatus = 'idle';
+    this.statusMessage = undefined;
+    this.autoplayBlocked = false;
+    this.pendingBlockedPlayback = null;
     this.elapsedSeconds = 0;
     this.currentUtterance = null;
     this.textChunks = [];
