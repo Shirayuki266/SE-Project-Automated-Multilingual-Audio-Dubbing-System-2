@@ -65,6 +65,7 @@ const SUPPORTED_LANGUAGES: { code: LanguageCode; label: string; flag: string }[]
   { code: 'th', label: 'ไทย (Thai)', flag: '🇹🇭' },
   { code: 'id', label: 'Bahasa Indonesia', flag: '🇮🇩' },
   { code: 'it', label: 'Italiano (Italian)', flag: '🇮🇹' },
+  { code: 'hi', label: 'हिन्दी (Hindi)', flag: '🇮🇳' },
 ];
 
 export const AdminPortal: React.FC<AdminPortalProps> = ({

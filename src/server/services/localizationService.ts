@@ -16,6 +16,7 @@ export const TARGET_LANGUAGES = [
   { code: 'th', label: 'ไทย (Thai)', flag: '🇹🇭' },
   { code: 'id', label: 'Bahasa Indonesia', flag: '🇮🇩' },
   { code: 'it', label: 'Italiano (Italian)', flag: '🇮🇹' },
+  { code: 'hi', label: 'हिन्दी (Hindi)', flag: '🇮🇳' },
 ];
 
 export interface LocalizePOIRequest {
@@ -113,7 +114,7 @@ export class LocalizationService {
     }
 
     // Languages to generate with AI (excluding Vietnamese)
-    const targetCodes = ['en', 'zh', 'ja', 'ko', 'fr', 'de', 'es', 'ru', 'th', 'id', 'it'];
+    const targetCodes = ['en', 'zh', 'ja', 'ko', 'fr', 'de', 'es', 'ru', 'th', 'id', 'it', 'hi'];
 
     let aiGeneratedItems: Array<{
       lang: string;
@@ -122,12 +123,12 @@ export class LocalizationService {
       description: string;
     }> = [];
 
-    // Call Gemini 3.8 Flash for 11 languages with structured JSON schema
+    // Call Gemini 3.8 Flash for 12 languages with structured JSON schema
     if (this.ai) {
       try {
         const prompt = `
 Bạn là chuyên gia dịch thuật và hướng dẫn viên du lịch văn hóa Phật giáo chuyên nghiệp tại Việt Nam Quốc Tự.
-Hãy dịch nội dung thuyết minh điểm chiêm bái sau sang 11 ngôn ngữ:
+Hãy dịch nội dung thuyết minh điểm chiêm bái sau sang 12 ngôn ngữ:
 - en (English)
 - zh (Chinese Mandarin Simplified)
 - ja (Japanese)
@@ -139,6 +140,7 @@ Hãy dịch nội dung thuyết minh điểm chiêm bái sau sang 11 ngôn ngữ
 - th (Thai)
 - id (Indonesian)
 - it (Italian)
+- hi (Hindi)
 
 Nội dung gốc (Tiếng Việt):
 - Tiêu đề: ${cleanTitleVi}
@@ -165,7 +167,7 @@ YÊU CẦU CHẤT LƯỢNG NGHIÊM NGẶT:
                 properties: {
                   lang: {
                     type: Type.STRING,
-                    description: 'Language code: en, zh, ja, ko, fr, de, es, ru, th, id, it',
+                    description: 'Language code: en, zh, ja, ko, fr, de, es, ru, th, id, it, hi',
                   },
                   title: {
                     type: Type.STRING,

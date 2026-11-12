@@ -18,8 +18,19 @@ async function startServer() {
   // API Routes (3-Tier architecture: Controllers -> Services -> Repositories)
   app.use('/api', apiRouter);
 
-  // Serve static MP3 narration audio files
+  // Serve static public assets (including worker scripts and audio)
+  app.use(express.static(path.resolve(__dirname, 'public')));
   app.use('/audio', express.static(path.resolve(__dirname, 'public/audio')));
+
+  // Dedicated MapLibre GL Worker routes with explicit JavaScript MIME type
+  const serveWorker = (_req: express.Request, res: express.Response) => {
+    res.setHeader('Content-Type', 'application/javascript');
+    res.sendFile(path.resolve(__dirname, 'public/maplibre-gl-worker.mjs'));
+  };
+  app.get('/maplibre-gl-worker.mjs', serveWorker);
+  app.get('/maplibre-gl-worker-dev.mjs', serveWorker);
+  app.get('/node_modules/.vite/deps/maplibre-gl-worker.mjs', serveWorker);
+  app.get('/node_modules/.vite/deps/maplibre-gl-worker-dev.mjs', serveWorker);
 
   // Database offline error middleware fallback
   app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

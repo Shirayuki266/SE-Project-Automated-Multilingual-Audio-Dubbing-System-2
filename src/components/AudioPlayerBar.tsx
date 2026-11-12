@@ -38,6 +38,8 @@ interface AudioPlayerBarProps {
   onPrevPOI: () => void;
   onOpenVoiceSelector: () => void;
   onOpenDetailModal?: () => void;
+  activeLayer?: 1 | 2 | 3;
+  layerName?: string;
 }
 
 export const AudioPlayerBar: React.FC<AudioPlayerBarProps> = ({
@@ -59,6 +61,8 @@ export const AudioPlayerBar: React.FC<AudioPlayerBarProps> = ({
   onPrevPOI,
   onOpenVoiceSelector,
   onOpenDetailModal,
+  activeLayer = 1,
+  layerName,
 }) => {
   const [currentSpeed, setCurrentSpeed] = useState<number>(1.0);
   const [isDismissedByUser, setIsDismissedByUser] = useState<boolean>(false);
@@ -142,6 +146,24 @@ export const AudioPlayerBar: React.FC<AudioPlayerBarProps> = ({
             <span className="text-[10px] text-[#2d5a37] font-semibold flex items-center gap-0.5 ml-2 bg-white px-2 py-0.5 rounded-full border border-[#cde0d2] shrink-0 hidden xs:inline-flex">
               <ChevronUp className="w-3 h-3" />
               Chi tiết
+            </span>
+
+            {/* 3-Layer Audio Active Fallback Badge */}
+            <span
+              className={`text-[9px] font-bold px-2 py-0.5 rounded-full border shrink-0 hidden sm:inline-flex ${
+                activeLayer === 1
+                  ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                  : activeLayer === 2
+                  ? 'bg-sky-50 text-sky-800 border-sky-300'
+                  : 'bg-amber-50 text-amber-800 border-amber-300'
+              }`}
+              title={layerName || 'Kiến trúc âm thanh 3 lớp'}
+            >
+              {activeLayer === 1
+                ? 'Vòng 1 (File MP3)'
+                : activeLayer === 2
+                ? 'Vòng 2 (Cloud TTS)'
+                : 'Vòng 3 (Thiết bị)'}
             </span>
           </div>
 

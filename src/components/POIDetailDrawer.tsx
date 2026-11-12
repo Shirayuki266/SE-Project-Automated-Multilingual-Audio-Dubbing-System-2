@@ -59,6 +59,7 @@ const SUPPORTED_LANGUAGES: { code: LanguageCode; label: string; flag: string }[]
   { code: 'th', label: 'ภาษาไทย', flag: '🇹🇭' },
   { code: 'id', label: 'Indonesia', flag: '🇮🇩' },
   { code: 'it', label: 'Italiano', flag: '🇮🇹' },
+  { code: 'hi', label: 'हिन्दी (Hindi)', flag: '🇮🇳' },
 ];
 
 export const POIDetailDrawer: React.FC<POIDetailDrawerProps> = ({

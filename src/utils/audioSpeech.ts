@@ -32,7 +32,8 @@ export type LanguageCode =
   | 'ru'
   | 'th'
   | 'id'
-  | 'it';
+  | 'it'
+  | 'hi';
 
 export type VoiceEngineId = 'gemini-kore' | 'gemini-charon' | 'chi-google' | 'google-cloud' | 'bing' | 'tiktok' | 'browser';
 
@@ -117,6 +118,7 @@ const LANG_VOICE_MAP: Record<LanguageCode, string[]> = {
   th: ['th-TH', 'th'],
   id: ['id-ID', 'id'],
   it: ['it-IT', 'it'],
+  hi: ['hi-IN', 'hi', 'hindi'],
 };
 
 export interface AudioEngineState {
@@ -1143,6 +1145,7 @@ export class AudioSpeechEngine {
       th: 'ยินดีต้อนรับสู่วัดเวียดนามกว๊อกตื่อ ท่านกำลังฟังระบบบรรยายเสียงอัตโนมัติ',
       id: 'Selamat datang di Wihara Vietnam Quoc Tu. Anda sedang mendengarkan panduan audio otomatis.',
       it: 'Benvenuti alla Pagoda Vietnam Quoc Tu. State ascoltando l audioguida automatica.',
+      hi: 'नमस्ते! वियतनाम क्वोक तू शिवालय में आपका स्वागत है। आप ऑडियो गाइड का परीक्षण कर रहे हैं।',
     };
     const text = sampleText || textByLang[lang] || textByLang['vi'];
     this.playNarration(text, lang, 'Thử giọng đọc', false);

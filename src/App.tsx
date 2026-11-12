@@ -99,6 +99,8 @@ export default function App() {
   // AI Translation on-demand state
   const [isAiTranslating, setIsAiTranslating] = useState<boolean>(false);
   const [aiStatusMsg, setAiStatusMsg] = useState<string | null>(null);
+  const [activeAudioLayer, setActiveAudioLayer] = useState<1 | 2 | 3>(1);
+  const [activeLayerName, setActiveLayerName] = useState<string>('Vòng 1: File MP3 thu sẵn');
 
   // Geofence alert toast
   const [geofenceToast, setGeofenceToast] = useState<{ poi: RichPOI; distance: number } | null>(null);
@@ -267,6 +269,8 @@ export default function App() {
       setIsAudioPaused(state.isPaused);
       setAudioElapsed(state.elapsedSeconds);
       setAudioDuration(state.duration);
+      if (state.activeLayer) setActiveAudioLayer(state.activeLayer);
+      if (state.layerName) setActiveLayerName(state.layerName);
     });
 
     return () => {
@@ -1038,6 +1042,8 @@ export default function App() {
         onOpenDetailModal={() => {
           if (activePOI) handleOpenDetail(activePOI);
         }}
+        activeLayer={activeAudioLayer}
+        layerName={activeLayerName}
       />
 
       {/* POI Detailed Bottom Drawer with Swipe-Down Gesture */}

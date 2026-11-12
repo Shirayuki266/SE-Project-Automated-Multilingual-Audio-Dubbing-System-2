@@ -1,6 +1,22 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Map as MapLibreMap, Marker, NavigationControl, ScaleControl, type StyleSpecification } from 'maplibre-gl';
+import {
+  Map as MapLibreMap,
+  Marker,
+  NavigationControl,
+  ScaleControl,
+  setWorkerUrl,
+  type StyleSpecification,
+} from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
+
+// Explicitly configure same-origin web worker URL to resolve Vite bundling error
+if (typeof window !== 'undefined') {
+  try {
+    setWorkerUrl('/maplibre-gl-worker.mjs');
+  } catch (err) {
+    console.warn('[MapLibre] setWorkerUrl notice:', err);
+  }
+}
 import { RichPOI } from '../server/types.js';
 import { UserLocationState } from '../hooks/useGPSTracker.js';
 import { LanguageCode } from '../utils/audioSpeech.js';
@@ -257,7 +273,59 @@ export const MapLibre3DCampusMap: React.FC<MapLibre3DCampusMapProps> = ({
   const [showPilgrimageRoute, setShowPilgrimageRoute] = useState<boolean>(true);
   const [isMapReady, setIsMapReady] = useState<boolean>(false);
 
-  const t = translations[currentLang];
+function createGeoJSONCircle(center: [number, number], radiusInMeters: number, points: number = 48): [number, number][] {
+  const coords: [number, number][] = [];
+  const km = radiusInMeters / 1000;
+  const distanceX = km / (111.32 * Math.cos((center[1] * Math.PI) / 180));
+  const distanceY = km / 110.574;
+
+  for (let i = 0; i < points; i++) {
+    const theta = (i / points) * (2 * Math.PI);
+    const x = distanceX * Math.cos(theta);
+    const y = distanceY * Math.sin(theta);
+    coords.push([center[0] + x, center[1] + y]);
+  }
+  coords.push(coords[0]);
+  return coords;
+}
+
+function buildGeofenceGeoJSON(poisList: RichPOI[], activeId: string | null): { all: GeoJSON.FeatureCollection; active: GeoJSON.FeatureCollection } {
+  const allFeatures: GeoJSON.Feature[] = poisList.map((poi) => ({
+    type: 'Feature',
+    properties: {
+      poi_id: poi.poi_id,
+      code: poi.code,
+      radius: poi.geofence_radius || 20,
+    },
+    geometry: {
+      type: 'Polygon',
+      coordinates: [createGeoJSONCircle([poi.longitude, poi.latitude], poi.geofence_radius || 20)],
+    },
+  }));
+
+  const activePoi = poisList.find((p) => p.poi_id === activeId);
+  const activeFeatures: GeoJSON.Feature[] = activePoi
+    ? [
+        {
+          type: 'Feature',
+          properties: {
+            poi_id: activePoi.poi_id,
+            code: activePoi.code,
+            radius: activePoi.geofence_radius || 20,
+          },
+          geometry: {
+            type: 'Polygon',
+            coordinates: [createGeoJSONCircle([activePoi.longitude, activePoi.latitude], activePoi.geofence_radius || 20)],
+          },
+        },
+      ]
+    : [];
+
+  return {
+    all: { type: 'FeatureCollection', features: allFeatures },
+    active: { type: 'FeatureCollection', features: activeFeatures },
+  };
+}
 
   // Helper to construct MapLibre Style Specification (allows zoom up to 22 without blank screens)
   const getMapStyleConfig = (type: 'street' | 'satellite', isNight: boolean): StyleSpecification => {
@@ -286,6 +354,14 @@ export const MapLibre3DCampusMap: React.FC<MapLibre3DCampusMapProps> = ({
           type: 'geojson',
           data: PILGRIMAGE_TRAIL_GEOJSON,
         },
+        'geofence-circles-source': {
+          type: 'geojson',
+          data: buildGeofenceGeoJSON(pois, activePoiId).all,
+        },
+        'geofence-active-source': {
+          type: 'geojson',
+          data: buildGeofenceGeoJSON(pois, activePoiId).active,
+        },
       },
       layers: [
         {
@@ -294,6 +370,47 @@ export const MapLibre3DCampusMap: React.FC<MapLibre3DCampusMapProps> = ({
           source: 'base-tiles',
           minzoom: 0,
           maxzoom: 22,
+        },
+        // Geofencing perimeter circles (all POIs)
+        {
+          id: 'geofence-circles-fill',
+          type: 'fill',
+          source: 'geofence-circles-source',
+          paint: {
+            'fill-color': isNight ? '#059669' : '#10b981',
+            'fill-opacity': 0.12,
+          },
+        },
+        {
+          id: 'geofence-circles-line',
+          type: 'line',
+          source: 'geofence-circles-source',
+          paint: {
+            'line-color': isNight ? '#34d399' : '#16a34a',
+            'line-width': 1.5,
+            'line-dasharray': [3, 2],
+            'line-opacity': 0.5,
+          },
+        },
+        // Active POI Geofencing Highlight
+        {
+          id: 'geofence-active-fill',
+          type: 'fill',
+          source: 'geofence-active-source',
+          paint: {
+            'fill-color': '#f59e0b',
+            'fill-opacity': 0.22,
+          },
+        },
+        {
+          id: 'geofence-active-line',
+          type: 'line',
+          source: 'geofence-active-source',
+          paint: {
+            'line-color': '#d97706',
+            'line-width': 2.5,
+            'line-opacity': 0.9,
+          },
         },
         // Pilgrimage Walking Trail Path
         {
@@ -407,6 +524,22 @@ export const MapLibre3DCampusMap: React.FC<MapLibre3DCampusMapProps> = ({
       mapRef.current.setLayoutProperty('pilgrimage-trail-casing', 'visibility', vis);
     }
   }, [showPilgrimageRoute, mapStyle, isNightMode]);
+
+  // Sync Geofencing Circles data
+  useEffect(() => {
+    if (!mapRef.current || !mapRef.current.isStyleLoaded()) return;
+    try {
+      const { all, active } = buildGeofenceGeoJSON(pois, activePoiId);
+      const allSource = mapRef.current.getSource('geofence-circles-source') as any;
+      if (allSource && typeof allSource.setData === 'function') {
+        allSource.setData(all);
+      }
+      const activeSource = mapRef.current.getSource('geofence-active-source') as any;
+      if (activeSource && typeof activeSource.setData === 'function') {
+        activeSource.setData(active);
+      }
+    } catch {}
+  }, [pois, activePoiId, mapStyle, isNightMode]);
 
   // Render POI 3D Markers
   useEffect(() => {
