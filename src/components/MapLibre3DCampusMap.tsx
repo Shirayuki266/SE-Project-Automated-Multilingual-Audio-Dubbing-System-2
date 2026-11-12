@@ -363,7 +363,6 @@ export const MapLibre3DCampusMap: React.FC<MapLibre3DCampusMapProps> = ({
       maxZoom: 22, // Fixes overzoom blank screen: supports zoom up to 22
       pitch: is3DMode ? 55 : 0, // Default 55° pitch for full 3D extruded view
       bearing: -15, // Oriented slightly to frame Tam Quan and Main Hall
-      antialias: true,
     });
 
     map.addControl(new NavigationControl({ visualizePitch: true }), 'top-right');
@@ -467,7 +466,7 @@ export const MapLibre3DCampusMap: React.FC<MapLibre3DCampusMapProps> = ({
 
       const marker = new Marker({ element: el, anchor: 'bottom' })
         .setLngLat([poi.longitude, poi.latitude])
-        .addTo(mapRef.current);
+        .addTo(mapRef.current!);
 
       markersRef.current.push(marker);
     });
