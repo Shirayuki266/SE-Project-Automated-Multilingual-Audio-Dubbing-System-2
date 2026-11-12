@@ -81,6 +81,7 @@ export interface SynthesizeOptions {
   lang?: string;
   voiceName?: string;
   speed?: number;
+  style?: string;
 }
 
 export interface SynthesizeResult {

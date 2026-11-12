@@ -6,6 +6,8 @@ import { calculateHaversineDistance } from '../utils/geo.js';
 export interface UserLocationState {
   lat: number;
   lng: number;
+  latitude: number;
+  longitude: number;
   accuracy: number;
   heading: number;
   confidenceScore: number;
@@ -21,6 +23,8 @@ export function useGPSTracker(
   const [userLocation, setUserLocation] = useState<UserLocationState>({
     lat: 10.77165,
     lng: 106.67115,
+    latitude: 10.77165,
+    longitude: 106.67115,
     accuracy: 8,
     heading: 0,
     confidenceScore: 92,
@@ -90,6 +94,8 @@ export function useGPSTracker(
         setUserLocation({
           lat: filtered.lat,
           lng: filtered.lng,
+          latitude: filtered.lat,
+          longitude: filtered.lng,
           accuracy: filtered.accuracy,
           heading: filtered.smoothedHeading,
           confidenceScore: filtered.confidenceScore,
