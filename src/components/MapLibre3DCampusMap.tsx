@@ -346,35 +346,46 @@ function buildGeofenceGeoJSON(poisList: RichPOI[], activeId: string | null): { a
 
   // Helper to construct MapLibre Style Specification (allows over-zoom up to 22 without blank screens)
   const getMapStyleConfig = (type: 'street' | 'satellite', isNight: boolean): StyleSpecification => {
+    const vietmapKey = import.meta.env.VITE_VIETMAP_API_KEY as string | undefined;
+    const hasVietMap = Boolean(vietmapKey && vietmapKey.trim().length > 0);
     const mapTilerKey = import.meta.env.VITE_MAPTILER_KEY as string | undefined;
     const hasMapTiler = Boolean(mapTilerKey && mapTilerKey.trim().length > 0);
 
-    const tileUrls: string[] = hasMapTiler
-      ? [
-          type === 'satellite'
-            ? `https://api.maptiler.com/maps/hybrid/256/{z}/{x}/{y}.jpg?key=${mapTilerKey}`
-            : isNight
-            ? `https://api.maptiler.com/maps/streets-v2-dark/256/{z}/{x}/{y}.png?key=${mapTilerKey}`
-            : `https://api.maptiler.com/maps/streets-v2/256/{z}/{x}/{y}.png?key=${mapTilerKey}`,
-        ]
-      : type === 'satellite'
-      ? ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}']
-      : isNight
-      ? [
-          'https://a.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png',
-          'https://b.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png',
-          'https://c.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png',
-          'https://d.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png',
-        ]
-      : [
-          'https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
-          'https://b.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
-          'https://c.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
-          'https://d.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
-        ];
+    let tileUrls: string[];
+    let attribution: string;
+
+    if (hasVietMap) {
+      tileUrls = [
+        type === 'satellite'
+          ? `https://maps.vietmap.vn/maps/tiles/st/{z}/{x}/{y}.png?apikey=${vietmapKey}`
+          : isNight
+          ? `https://maps.vietmap.vn/maps/tiles/dm/{z}/{x}/{y}.png?apikey=${vietmapKey}`
+          : `https://maps.vietmap.vn/maps/tiles/tm/{z}/{x}/{y}.png?apikey=${vietmapKey}`,
+      ];
+      attribution = '&copy; Việt Nam Quốc Tự · VIETMAP Maps (Bản đồ số Việt Nam)';
+    } else if (hasMapTiler) {
+      tileUrls = [
+        type === 'satellite'
+          ? `https://api.maptiler.com/maps/hybrid/256/{z}/{x}/{y}.jpg?key=${mapTilerKey}`
+          : isNight
+          ? `https://api.maptiler.com/maps/streets-v2-dark/256/{z}/{x}/{y}.png?key=${mapTilerKey}`
+          : `https://api.maptiler.com/maps/streets-v2/256/{z}/{x}/{y}.png?key=${mapTilerKey}`,
+      ];
+      attribution = '&copy; Việt Nam Quốc Tự · MapTiler · OpenStreetMap';
+    } else {
+      // Nguồn bản đồ chuẩn Esri ArcGIS: Miễn phí 100%, không cần API key, không bị watermark "API KEY REQUIRED"
+      tileUrls = [
+        type === 'satellite'
+          ? 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+          : isNight
+          ? 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}'
+          : 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
+      ];
+      attribution = '&copy; Việt Nam Quốc Tự · Esri World Street Map (Miễn phí 100%)';
+    }
 
     // Actual native maxzoom of tile providers so MapLibre overzooms cleanly up to z22 without 404/blank tiles
-    const nativeMaxZoom = type === 'satellite' ? (hasMapTiler ? 19 : 18) : 19;
+    const nativeMaxZoom = 19;
 
     const sources: StyleSpecification['sources'] = {
       'base-tiles': {
@@ -382,9 +393,7 @@ function buildGeofenceGeoJSON(poisList: RichPOI[], activeId: string | null): { a
         tiles: tileUrls,
         tileSize: 256,
         maxzoom: nativeMaxZoom,
-        attribution: hasMapTiler
-          ? '&copy; Việt Nam Quốc Tự · MapTiler · OpenStreetMap'
-          : '&copy; Việt Nam Quốc Tự · CARTO · OpenStreetMap · Esri',
+        attribution,
       },
       'buildings-3d-source': {
         type: 'geojson',
