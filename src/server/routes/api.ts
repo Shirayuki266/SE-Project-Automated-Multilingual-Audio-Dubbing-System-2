@@ -245,7 +245,7 @@ router.post('/settings/default-voice', requireAdmin, (req, res) => {
       defaultVoiceConfig.voiceEngine = voiceEngine;
     }
     if (typeof rate === 'number' && !isNaN(rate)) {
-      defaultVoiceConfig.rate = Math.max(0.7, Math.min(1.5, Math.round(rate * 100) / 100));
+      defaultVoiceConfig.rate = Math.max(0.7, Math.min(2.5, Math.round(rate * 100) / 100));
     }
     if (typeof pitch === 'number' && !isNaN(pitch)) {
       defaultVoiceConfig.pitch = Math.max(0.7, Math.min(1.4, Math.round(pitch * 100) / 100));

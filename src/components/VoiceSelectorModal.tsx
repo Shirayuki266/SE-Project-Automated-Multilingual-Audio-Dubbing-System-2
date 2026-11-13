@@ -13,6 +13,9 @@ import {
   VOICE_ENGINES,
   VoiceEngineId,
   LanguageCode,
+  SPEED_OPTIONS,
+  Speed,
+  normalizeSpeed,
 } from '../utils/audioSpeech.js';
 import { translations } from '../translations/index.js';
 
@@ -193,32 +196,64 @@ export const VoiceSelectorModal: React.FC<VoiceSelectorModalProps> = ({
 
           {/* Controls: Tốc độ đọc (Speech Rate) & Độ cao giọng (Pitch) */}
           <div className="p-4 bg-[#f9faf8] rounded-2xl border border-[#e2eae4] space-y-3.5">
-            {/* Speed / Rate Slider */}
+            {/* Speed / Rate Selection: Segmented 5-Button Control (0.7x, 1.0x, 1.25x, 1.5x, 2.5x) */}
             <div>
-              <div className="flex items-center justify-between text-xs mb-1.5">
+              <div className="flex items-center justify-between text-xs mb-2">
                 <span className="font-bold text-[#19231b] flex items-center gap-1">
                   <Sliders className="w-3.5 h-3.5 text-[#2d5a37]" />
                   <span>{t.speechRateLabel}</span>
                 </span>
                 <span className="font-mono font-bold text-[#2d5a37] text-xs bg-white px-2 py-0.5 rounded-full border border-[#d6e7da]">
-                  {rate.toFixed(2)}x
+                  {rate}x
                 </span>
               </div>
-              <input
-                type="range"
-                min="0.7"
-                max="2.5"
-                step="0.05"
-                value={rate}
-                onChange={(e) => handleRateChange(parseFloat(e.target.value))}
-                className="w-full accent-[#2d5a37] h-1.5 bg-[#e2eae4] rounded-lg cursor-pointer"
-              />
-              <div className="flex justify-between text-[10px] text-[#7a8e80] mt-1">
-                <span>0.7x (Chậm)</span>
-                <span>1.0x (Chuẩn)</span>
-                <span>1.5x (Nhanh)</span>
-                <span>2.5x (Tối đa)</span>
+
+              {/* Segmented Button Group (min-h-[44px] touch target, 5 fixed options) */}
+              <div
+                role="radiogroup"
+                aria-label={t.speechRateLabel}
+                className="grid grid-cols-5 gap-1.5 p-1 bg-[#eef3ef] rounded-2xl border border-[#d6e7da]"
+              >
+                {SPEED_OPTIONS.map((opt) => {
+                  const isSelected = rate === opt;
+                  return (
+                    <button
+                      key={opt}
+                      type="button"
+                      role="radio"
+                      aria-checked={isSelected}
+                      aria-label={`Tốc độ đọc ${opt}x`}
+                      onClick={() => handleRateChange(opt)}
+                      onKeyDown={(e) => {
+                        const idx = SPEED_OPTIONS.indexOf(normalizeSpeed(rate));
+                        if (e.key === 'ArrowRight' && idx < SPEED_OPTIONS.length - 1) {
+                          handleRateChange(SPEED_OPTIONS[idx + 1]);
+                        } else if (e.key === 'ArrowLeft' && idx > 0) {
+                          handleRateChange(SPEED_OPTIONS[idx - 1]);
+                        }
+                      }}
+                      className={`min-h-[44px] rounded-xl text-xs font-bold transition-all flex flex-col items-center justify-center select-none ${
+                        isSelected
+                          ? 'bg-[#2d5a37] text-white shadow-md shadow-[#2d5a37]/25 ring-2 ring-[#2d5a37]'
+                          : 'bg-white/80 text-[#3b4e40] hover:bg-white hover:text-[#19231b] active:scale-95'
+                      }`}
+                    >
+                      <span className="leading-tight">{opt === 1 ? '1.0' : opt}x</span>
+                      <span className="text-[9px] font-normal opacity-75 leading-tight">
+                        {opt === 0.7 ? 'Chậm' : opt === 1.0 ? 'Chuẩn' : opt === 2.5 ? 'Tối đa' : 'Nhanh'}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
+
+              {/* 2.5x Experience Notice */}
+              {rate === 2.5 && (
+                <div className="mt-2 px-3 py-1.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-[11px] flex items-center gap-1.5 animate-fadeIn">
+                  <Sparkles className="w-3.5 h-3.5 text-amber-600 flex-shrink-0" />
+                  <span>Tốc độ nhanh (2.5x), có thể khó nghe rõ trong môi trường ồn ào.</span>
+                </div>
+              )}
             </div>
 
             {/* Pitch Slider */}

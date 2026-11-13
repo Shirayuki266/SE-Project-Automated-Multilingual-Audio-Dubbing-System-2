@@ -20,6 +20,32 @@ export const templeSFX = {
   playTempleBell: (_frequency: number = 260) => {},
 };
 
+/**
+ * Danh sách 5 mức tốc độ đọc chuẩn hóa duy nhất của toàn bộ hệ thống:
+ * 0.7x (Chậm), 1.0x (Chuẩn), 1.25x (Hơi nhanh), 1.5x (Nhanh), 2.5x (Tối đa)
+ */
+export const SPEED_OPTIONS = [0.7, 1.0, 1.25, 1.5, 2.5] as const;
+export type Speed = typeof SPEED_OPTIONS[number];
+export const DEFAULT_SPEED: Speed = 1.0;
+
+/**
+ * Chuyển đổi bất kỳ giá trị tốc độ nào (kể cả giá trị cũ 0.75, 1.3, rác...) về mức hợp lệ gần nhất.
+ */
+export function normalizeSpeed(rate: unknown): Speed {
+  const num = typeof rate === 'number' ? rate : parseFloat(String(rate));
+  if (!Number.isFinite(num) || isNaN(num)) return DEFAULT_SPEED;
+  let closest: Speed = SPEED_OPTIONS[0];
+  let minDiff = Math.abs(num - closest);
+  for (const opt of SPEED_OPTIONS) {
+    const diff = Math.abs(num - opt);
+    if (diff < minDiff) {
+      minDiff = diff;
+      closest = opt;
+    }
+  }
+  return closest;
+}
+
 export type LanguageCode =
   | 'vi'
   | 'en'
@@ -404,8 +430,7 @@ export class AudioSpeechEngine {
         this.selectedEngine = savedEngine;
       }
       if (savedRate) {
-        const parsedRate = parseFloat(savedRate);
-        if (!isNaN(parsedRate)) this.speechRate = Math.max(0.7, Math.min(2.5, parsedRate));
+        this.speechRate = normalizeSpeed(savedRate);
       }
       if (savedPitch) {
         const parsedPitch = parseFloat(savedPitch);
@@ -425,7 +450,7 @@ export class AudioSpeechEngine {
           this.selectedEngine = defaultSettings.voiceEngine as VoiceEngineId;
         }
         if (typeof defaultSettings.rate === 'number') {
-          this.speechRate = Math.max(0.7, Math.min(2.5, defaultSettings.rate));
+          this.speechRate = normalizeSpeed(defaultSettings.rate);
         }
         if (typeof defaultSettings.pitch === 'number') {
           this.speechPitch = Math.max(0.8, Math.min(1.3, defaultSettings.pitch));
@@ -518,7 +543,7 @@ export class AudioSpeechEngine {
   }
 
   public setRate(rate: number, markUserCustom: boolean = true) {
-    this.speechRate = Math.max(0.75, Math.min(2.5, Math.round(rate * 100) / 100));
+    this.speechRate = normalizeSpeed(rate);
     try {
       localStorage.setItem('vnqt_speech_rate', String(this.speechRate));
       if (markUserCustom) localStorage.setItem('vnqt_voice_user_customized', 'true');
@@ -527,9 +552,14 @@ export class AudioSpeechEngine {
     // CẬP NHẬT TRỰC TIẾP TỐC ĐỘ CHO HTML AUDIO ELEMENT (Vòng 1 & Vòng 2)
     if (this.currentAudioElement) {
       try {
+        (this.currentAudioElement as any).preservesPitch = true;
+        (this.currentAudioElement as any).webkitPreservesPitch = true;
         this.currentAudioElement.playbackRate = this.speechRate;
       } catch (err) {
         console.warn('[AudioSpeechEngine] Failed to apply playbackRate to audio element:', err);
+        try {
+          this.currentAudioElement.playbackRate = Math.min(2.0, this.speechRate);
+        } catch {}
       }
     }
 
@@ -821,11 +851,15 @@ export class AudioSpeechEngine {
           const playSrc = data.audioUrl || data.dataUrl;
           const audio = new Audio(playSrc);
           audio.preload = 'auto';
-          audio.playbackRate = this.speechRate || 1.0;
+          (audio as any).preservesPitch = true;
+          (audio as any).webkitPreservesPitch = true;
+          audio.playbackRate = this.speechRate || DEFAULT_SPEED;
           this.currentAudioElement = audio;
 
           audio.onplay = () => {
-            audio.playbackRate = this.speechRate || 1.0;
+            (audio as any).preservesPitch = true;
+            (audio as any).webkitPreservesPitch = true;
+            audio.playbackRate = this.speechRate || DEFAULT_SPEED;
           };
 
           audio.onloadedmetadata = () => {
@@ -938,11 +972,15 @@ export class AudioSpeechEngine {
     try {
       const audio = new Audio(url);
       audio.preload = 'auto';
-      audio.playbackRate = this.speechRate || 1.0;
+      (audio as any).preservesPitch = true;
+      (audio as any).webkitPreservesPitch = true;
+      audio.playbackRate = this.speechRate || DEFAULT_SPEED;
       this.currentAudioElement = audio;
 
       audio.onplay = () => {
-        audio.playbackRate = this.speechRate || 1.0;
+        (audio as any).preservesPitch = true;
+        (audio as any).webkitPreservesPitch = true;
+        audio.playbackRate = this.speechRate || DEFAULT_SPEED;
       };
 
       audio.onloadedmetadata = () => {
@@ -1107,12 +1145,17 @@ export class AudioSpeechEngine {
       utterance.lang = defaultLangTag;
     }
 
-    // DISTORTION SHIELD FOR APPLE (iOS/iPadOS/macOS):
-    // Force pitch = 1.0 to prevent robotic chipmunk, allow natural rate scaling
+    // DISTORTION SHIELD FOR APPLE (iOS/iPadOS/macOS) & Web Speech API Rate Clamping:
+    // Force pitch = 1.0 on Apple to prevent robotic chipmunk distortion.
+    // iOS/WebKit Web Speech engine caps utterance.rate at 2.0; rates > 2.0 cause clipping or silence.
     const isApple =
       isApplePlatform() || (chosenVoice && /apple|linh|mai|siri/i.test(chosenVoice.name + ' ' + chosenVoice.voiceURI));
     const safePitch = isApple ? 1.0 : Math.max(0.85, Math.min(1.25, this.speechPitch));
-    const safeRate = Math.max(0.75, Math.min(2.5, this.speechRate || 1.0));
+    const safeRate = isApple ? Math.min(2.0, this.speechRate) : this.speechRate;
+
+    if (isApple && this.speechRate > 2.0) {
+      this.statusMessage = 'Đang phát giọng đọc thiết bị (iOS giới hạn tối đa 2.0x)';
+    }
 
     utterance.rate = safeRate;
     utterance.pitch = safePitch;
