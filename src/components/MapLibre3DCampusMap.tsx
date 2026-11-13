@@ -251,6 +251,39 @@ const PILGRIMAGE_TRAIL_GEOJSON: GeoJSON.Feature = {
   },
 };
 
+interface BasemapDefinition {
+  readonly tiles: readonly string[];
+  readonly tileSize: number;
+  readonly maxzoom: number;
+  readonly attribution: string;
+}
+
+// Bảng cấu hình basemap cố định - maxzoom đo đạc thực tế tại tọa độ Việt Nam Quốc Tự:
+// - Dark Gray Canvas: maxzoom thật là 16 (từ 17 trở lên Esri trả ảnh giữ chỗ "Map data not yet available")
+// - World Street Map: maxzoom thật là 19 (từ 20 trở lên Esri trả ảnh giữ chỗ)
+// - World Imagery: maxzoom thật là 19 (từ 20 trở lên Esri trả ảnh giữ chỗ)
+// Cấp map giữ maxZoom: 22 để MapLibre tự động overzoom texture không bị màn hình trắng/lỗi.
+const BASEMAPS: Record<'street' | 'dark' | 'satellite', BasemapDefinition> = {
+  street: {
+    tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}'],
+    tileSize: 256,
+    maxzoom: 19,
+    attribution: '&copy; Việt Nam Quốc Tự · Esri World Street Map',
+  },
+  dark: {
+    tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}'],
+    tileSize: 256,
+    maxzoom: 16,
+    attribution: '&copy; Việt Nam Quốc Tự · Esri Dark Gray Canvas',
+  },
+  satellite: {
+    tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+    tileSize: 256,
+    maxzoom: 19,
+    attribution: '&copy; Việt Nam Quốc Tự · Esri World Imagery',
+  },
+} as const;
+
 export const MapLibre3DCampusMap: React.FC<MapLibre3DCampusMapProps> = ({
   pois,
   currentLang,
@@ -280,6 +313,7 @@ export const MapLibre3DCampusMap: React.FC<MapLibre3DCampusMapProps> = ({
   };
   const [showPilgrimageRoute, setShowPilgrimageRoute] = useState<boolean>(true);
   const [isMapReady, setIsMapReady] = useState<boolean>(false);
+  const [tileErrorNotice, setTileErrorNotice] = useState<string | null>(null);
 
   // Auto-sync 4D Day/Night every 60s based on user local clock
   useEffect(() => {
@@ -346,54 +380,45 @@ function buildGeofenceGeoJSON(poisList: RichPOI[], activeId: string | null): { a
 
   // Helper to construct MapLibre Style Specification (allows over-zoom up to 22 without blank screens)
   const getMapStyleConfig = (type: 'street' | 'satellite', isNight: boolean): StyleSpecification => {
-    const vietmapKey = import.meta.env.VITE_VIETMAP_API_KEY as string | undefined;
-    const hasVietMap = Boolean(vietmapKey && vietmapKey.trim().length > 0);
     const mapTilerKey = import.meta.env.VITE_MAPTILER_KEY as string | undefined;
     const hasMapTiler = Boolean(mapTilerKey && mapTilerKey.trim().length > 0);
 
-    let tileUrls: string[];
-    let attribution: string;
+    let activeBasemap: BasemapDefinition;
 
-    if (hasVietMap) {
-      tileUrls = [
-        type === 'satellite'
-          ? `https://maps.vietmap.vn/maps/tiles/st/{z}/{x}/{y}.png?apikey=${vietmapKey}`
-          : isNight
-          ? `https://maps.vietmap.vn/maps/tiles/dm/{z}/{x}/{y}.png?apikey=${vietmapKey}`
-          : `https://maps.vietmap.vn/maps/tiles/tm/{z}/{x}/{y}.png?apikey=${vietmapKey}`,
-      ];
-      attribution = '&copy; Việt Nam Quốc Tự · VIETMAP Maps (Bản đồ số Việt Nam)';
-    } else if (hasMapTiler) {
-      tileUrls = [
-        type === 'satellite'
-          ? `https://api.maptiler.com/maps/hybrid/256/{z}/{x}/{y}.jpg?key=${mapTilerKey}`
-          : isNight
-          ? `https://api.maptiler.com/maps/streets-v2-dark/256/{z}/{x}/{y}.png?key=${mapTilerKey}`
-          : `https://api.maptiler.com/maps/streets-v2/256/{z}/{x}/{y}.png?key=${mapTilerKey}`,
-      ];
-      attribution = '&copy; Việt Nam Quốc Tự · MapTiler · OpenStreetMap';
+    if (hasMapTiler) {
+      activeBasemap = {
+        tiles: [
+          type === 'satellite'
+            ? `https://api.maptiler.com/maps/hybrid/256/{z}/{x}/{y}.jpg?key=${mapTilerKey}`
+            : isNight
+            ? `https://api.maptiler.com/maps/streets-v2-dark/256/{z}/{x}/{y}.png?key=${mapTilerKey}`
+            : `https://api.maptiler.com/maps/streets-v2/256/{z}/{x}/{y}.png?key=${mapTilerKey}`,
+        ],
+        tileSize: 256,
+        maxzoom: 19,
+        attribution: '&copy; Việt Nam Quốc Tự · MapTiler · OpenStreetMap',
+      };
     } else {
-      // Nguồn bản đồ chuẩn Esri ArcGIS: Miễn phí 100%, không cần API key, không bị watermark "API KEY REQUIRED"
-      tileUrls = [
+      // Nguồn bản đồ chuẩn Esri ArcGIS: Miễn phí 100%, không cần API key, không bị watermark.
+      // Đo đạc thực tế tại tọa độ Việt Nam Quốc Tự:
+      // - Dark Gray Canvas: maxzoom thật là 16 (từ 17 trở lên Esri trả ảnh giữ chỗ "Map data not yet available")
+      // - World Street Map: maxzoom thật là 19 (từ 20 trở lên Esri trả ảnh giữ chỗ)
+      // - World Imagery: maxzoom thật là 19 (từ 20 trở lên Esri trả ảnh giữ chỗ)
+      activeBasemap =
         type === 'satellite'
-          ? 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+          ? BASEMAPS.satellite
           : isNight
-          ? 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}'
-          : 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
-      ];
-      attribution = '&copy; Việt Nam Quốc Tự · Esri World Street Map (Miễn phí 100%)';
+          ? BASEMAPS.dark
+          : BASEMAPS.street;
     }
-
-    // Actual native maxzoom of tile providers so MapLibre overzooms cleanly up to z22 without 404/blank tiles
-    const nativeMaxZoom = 19;
 
     const sources: StyleSpecification['sources'] = {
       'base-tiles': {
         type: 'raster',
-        tiles: tileUrls,
-        tileSize: 256,
-        maxzoom: nativeMaxZoom,
-        attribution,
+        tiles: [...activeBasemap.tiles],
+        tileSize: activeBasemap.tileSize,
+        maxzoom: activeBasemap.maxzoom,
+        attribution: activeBasemap.attribution,
       },
       'buildings-3d-source': {
         type: 'geojson',
@@ -557,6 +582,34 @@ function buildGeofenceGeoJSON(poisList: RichPOI[], activeId: string | null): { a
       try {
         map.resize();
       } catch {}
+    });
+
+    let tileErrorStreak = 0;
+    let lastTileErrorTime = 0;
+
+    map.on('error', (e) => {
+      const err = e?.error;
+      const msg = typeof err === 'string' ? err : err?.message || '';
+      const isTileError = (e as any)?.sourceId === 'base-tiles' || msg.includes('tile') || msg.includes('404') || msg.includes('Failed to fetch');
+      if (isTileError) {
+        const now = Date.now();
+        if (now - lastTileErrorTime < 5000) {
+          tileErrorStreak += 1;
+        } else {
+          tileErrorStreak = 1;
+        }
+        lastTileErrorTime = now;
+        if (tileErrorStreak >= 4) {
+          setTileErrorNotice('Đang tải lại dữ liệu ô gạch bản đồ...');
+        }
+      }
+    });
+
+    map.on('sourcedata', (e) => {
+      if (e.sourceId === 'base-tiles' && e.isSourceLoaded) {
+        tileErrorStreak = 0;
+        setTileErrorNotice(null);
+      }
     });
 
     mapRef.current = map;
@@ -774,6 +827,14 @@ function buildGeofenceGeoJSON(poisList: RichPOI[], activeId: string | null): { a
     <div className="relative w-full h-full min-h-[420px] rounded-3xl overflow-hidden shadow-sm border border-[#e2eae4] bg-[#f8fafc]">
       {/* MapLibre WebGL Canvas Container */}
       <div ref={mapContainerRef} className="w-full h-full min-h-[420px]" />
+
+      {/* Tile loading error notification */}
+      {tileErrorNotice && (
+        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-30 px-3 py-1.5 rounded-full bg-amber-600/95 text-white text-xs font-semibold shadow-lg backdrop-blur flex items-center gap-1.5 border border-amber-400">
+          <Info className="w-3.5 h-3.5 flex-shrink-0" />
+          <span>{tileErrorNotice}</span>
+        </div>
+      )}
 
       {/* Top Left Floating 3D / 4D Campus Info Banner */}
       <div className="absolute top-3 left-3 z-10 flex flex-col gap-1.5 pointer-events-auto">
