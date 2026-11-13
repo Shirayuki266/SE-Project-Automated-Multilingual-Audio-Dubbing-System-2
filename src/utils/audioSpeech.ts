@@ -405,7 +405,7 @@ export class AudioSpeechEngine {
       }
       if (savedRate) {
         const parsedRate = parseFloat(savedRate);
-        if (!isNaN(parsedRate)) this.speechRate = Math.max(0.7, Math.min(1.4, parsedRate));
+        if (!isNaN(parsedRate)) this.speechRate = Math.max(0.7, Math.min(2.5, parsedRate));
       }
       if (savedPitch) {
         const parsedPitch = parseFloat(savedPitch);
@@ -425,7 +425,7 @@ export class AudioSpeechEngine {
           this.selectedEngine = defaultSettings.voiceEngine as VoiceEngineId;
         }
         if (typeof defaultSettings.rate === 'number') {
-          this.speechRate = Math.max(0.7, Math.min(1.4, defaultSettings.rate));
+          this.speechRate = Math.max(0.7, Math.min(2.5, defaultSettings.rate));
         }
         if (typeof defaultSettings.pitch === 'number') {
           this.speechPitch = Math.max(0.8, Math.min(1.3, defaultSettings.pitch));
@@ -518,7 +518,7 @@ export class AudioSpeechEngine {
   }
 
   public setRate(rate: number, markUserCustom: boolean = true) {
-    this.speechRate = Math.max(0.75, Math.min(1.5, Math.round(rate * 100) / 100));
+    this.speechRate = Math.max(0.75, Math.min(2.5, Math.round(rate * 100) / 100));
     try {
       localStorage.setItem('vnqt_speech_rate', String(this.speechRate));
       if (markUserCustom) localStorage.setItem('vnqt_voice_user_customized', 'true');
@@ -1112,7 +1112,7 @@ export class AudioSpeechEngine {
     const isApple =
       isApplePlatform() || (chosenVoice && /apple|linh|mai|siri/i.test(chosenVoice.name + ' ' + chosenVoice.voiceURI));
     const safePitch = isApple ? 1.0 : Math.max(0.85, Math.min(1.25, this.speechPitch));
-    const safeRate = Math.max(0.75, Math.min(1.4, this.speechRate || 1.0));
+    const safeRate = Math.max(0.75, Math.min(2.5, this.speechRate || 1.0));
 
     utterance.rate = safeRate;
     utterance.pitch = safePitch;
