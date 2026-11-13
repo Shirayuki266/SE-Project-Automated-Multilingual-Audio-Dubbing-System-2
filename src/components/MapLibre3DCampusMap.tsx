@@ -360,11 +360,17 @@ function buildGeofenceGeoJSON(poisList: RichPOI[], activeId: string | null): { a
       : type === 'satellite'
       ? ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}']
       : isNight
-      ? ['https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}']
+      ? [
+          'https://a.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png',
+          'https://b.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png',
+          'https://c.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png',
+          'https://d.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png',
+        ]
       : [
-          'https://a.tile.openstreetmap.org/{z}/{x}/{y}.png',
-          'https://b.tile.openstreetmap.org/{z}/{x}/{y}.png',
-          'https://c.tile.openstreetmap.org/{z}/{x}/{y}.png',
+          'https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
+          'https://b.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
+          'https://c.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
+          'https://d.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
         ];
 
     // Actual native maxzoom of tile providers so MapLibre overzooms cleanly up to z22 without 404/blank tiles
@@ -378,11 +384,11 @@ function buildGeofenceGeoJSON(poisList: RichPOI[], activeId: string | null): { a
         maxzoom: nativeMaxZoom,
         attribution: hasMapTiler
           ? '&copy; Việt Nam Quốc Tự · MapTiler · OpenStreetMap'
-          : '&copy; Việt Nam Quốc Tự · OpenStreetMap · Esri (Miễn phí 100%)',
+          : '&copy; Việt Nam Quốc Tự · CARTO · OpenStreetMap · Esri',
       },
       'buildings-3d-source': {
         type: 'geojson',
-        data: VNQT_3D_BUILDINGS_GEOJSON,
+        data: { type: 'FeatureCollection', features: [] },
       },
       'pilgrimage-trail-source': {
         type: 'geojson',
@@ -507,25 +513,6 @@ function buildGeofenceGeoJSON(poisList: RichPOI[], activeId: string | null): { a
             'line-width': 3.5,
             'line-dasharray': [2, 1.5],
             'line-opacity': 0.95,
-          },
-        },
-        // 3D Extruded Buildings Layer
-        {
-          id: '3d-buildings-extrusion',
-          type: 'fill-extrusion',
-          source: 'buildings-3d-source',
-          minzoom: 14,
-          maxzoom: 22,
-          paint: {
-            'fill-extrusion-color': [
-              'case',
-              ['boolean', isNight, false],
-              ['get', 'night_color'],
-              ['get', 'color'],
-            ],
-            'fill-extrusion-height': ['get', 'height'],
-            'fill-extrusion-base': ['get', 'base_height'],
-            'fill-extrusion-opacity': 0.92,
           },
         },
       ],

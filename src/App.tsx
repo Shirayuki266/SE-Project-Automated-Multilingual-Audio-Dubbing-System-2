@@ -13,7 +13,6 @@ import { WelcomeModal } from './components/WelcomeModal.tsx';
 const MapLibre3DCampusMap = lazy(() =>
   import('./components/MapLibre3DCampusMap.tsx').then((m) => ({ default: m.MapLibre3DCampusMap }))
 );
-import { TravelAssistantChatbot } from './components/TravelAssistantChatbot.tsx';
 import { AudioPlayerBar } from './components/AudioPlayerBar.tsx';
 import { POIDetailDrawer } from './components/POIDetailDrawer.tsx';
 import { QRScannerModal } from './components/QRScannerModal.tsx';
@@ -1091,19 +1090,6 @@ export default function App() {
           <span className="text-[10px]">{t.tabMap}</span>
         </button>
       </nav>
-
-      {/* Floating Travel Assistant & Navigation Chatbot (Tuệ Đăng) */}
-      <TravelAssistantChatbot
-        pois={pois}
-        currentLang={currentLang}
-        userLocation={userLocation}
-        isAudioActive={isAudioPlaying || isAudioPaused || Boolean(activePOI)}
-        onSelectPOI={(poi, autoPlay) => {
-          setActivePOI(poi);
-          if (autoPlay) handlePlayPOI(poi);
-          handleOpenDetail(poi);
-        }}
-      />
 
       {/* Welcome Screen with single "Bắt Đầu Chiêm Bái" action */}
       {showWelcome && (
