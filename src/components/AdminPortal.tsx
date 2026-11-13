@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { RichPOI, Campus } from '../server/types.js';
-import { LanguageCode, speechEngine, VOICE_ENGINES, VoiceEngineId } from '../utils/audioSpeech.js';
+import { LanguageCode, speechEngine, VOICE_ENGINES, VoiceEngineId, DEFAULT_SPEED } from '../utils/audioSpeech.js';
 import { AdminPOIMapPicker } from './AdminPOIMapPicker.js';
 import { POIArticlePopup } from './POIArticlePopup.js';
 import QRCode from 'qrcode';
@@ -74,7 +74,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
   // Default Voice Configuration State
   const [defaultVoiceEngine, setDefaultVoiceEngine] = useState<VoiceEngineId>('chi-google');
-  const [defaultVoiceRate, setDefaultVoiceRate] = useState<number>(0.95);
+  const [defaultVoiceRate, setDefaultVoiceRate] = useState<number>(DEFAULT_SPEED);
   const [defaultVoicePitch, setDefaultVoicePitch] = useState<number>(1.0);
   const [isSavingVoice, setIsSavingVoice] = useState(false);
   const [isTestingVoice, setIsTestingVoice] = useState(false);

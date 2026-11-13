@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { RichPOI } from '../server/types.js';
-import { LanguageCode, speechEngine } from '../utils/audioSpeech.js';
+import { LanguageCode, speechEngine, SPEED_OPTIONS, normalizeSpeed } from '../utils/audioSpeech.js';
 import { translations } from '../translations/index.js';
 import {
   X,
@@ -85,7 +85,7 @@ export const POIDetailDrawer: React.FC<POIDetailDrawerProps> = ({
 }) => {
   const [currentSpeed, setCurrentSpeed] = useState<number>(() => {
     try {
-      return speechEngine.getRate() || 1.0;
+      return normalizeSpeed(speechEngine.getRate());
     } catch {
       return 1.0;
     }
@@ -97,7 +97,7 @@ export const POIDetailDrawer: React.FC<POIDetailDrawerProps> = ({
   useEffect(() => {
     const rate = speechEngine.getRate();
     if (rate && Number.isFinite(rate)) {
-      setCurrentSpeed(rate);
+      setCurrentSpeed(normalizeSpeed(rate));
     }
   }, [isPlaying, isPaused, isOpen]);
 
@@ -124,9 +124,9 @@ export const POIDetailDrawer: React.FC<POIDetailDrawerProps> = ({
   };
 
   const cycleSpeed = () => {
-    const speeds = [0.75, 1.0, 1.25, 1.5];
-    const currentIndex = speeds.indexOf(currentSpeed);
-    const nextSpeed = speeds[(currentIndex + 1) % speeds.length];
+    const normalized = normalizeSpeed(currentSpeed);
+    const currentIndex = SPEED_OPTIONS.indexOf(normalized);
+    const nextSpeed = SPEED_OPTIONS[(currentIndex + 1) % SPEED_OPTIONS.length];
     setCurrentSpeed(nextSpeed);
     onSetRate(nextSpeed);
   };
@@ -360,8 +360,9 @@ export const POIDetailDrawer: React.FC<POIDetailDrawerProps> = ({
             {/* Speed Button */}
             <button
               onClick={cycleSpeed}
-              className="px-3 py-1.5 rounded-full bg-white border border-[#d6e7da] hover:bg-[#e4efe6] text-[#2d5a37] text-xs font-bold shadow-2xs transition-colors"
-              title="Tốc độ đọc"
+              aria-label={`Tốc độ đọc: ${currentSpeed}x`}
+              className="min-h-[44px] min-w-[44px] px-3 py-1.5 rounded-full bg-white border border-[#d6e7da] hover:bg-[#e4efe6] text-[#2d5a37] text-xs font-bold shadow-2xs transition-colors inline-flex items-center justify-center"
+              title="Tốc độ đọc (0.7x, 1x, 1.25x, 1.5x, 2.5x)"
             >
               {currentSpeed}x
             </button>

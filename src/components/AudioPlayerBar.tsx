@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { RichPOI } from '../server/types.js';
-import { LanguageCode, AudioPlaybackStatus, speechEngine } from '../utils/audioSpeech.js';
+import { LanguageCode, AudioPlaybackStatus, speechEngine, SPEED_OPTIONS, normalizeSpeed } from '../utils/audioSpeech.js';
 import { translations } from '../translations/index.js';
 import {
   Play,
@@ -74,18 +74,19 @@ export const AudioPlayerBar: React.FC<AudioPlayerBarProps> = ({
 }) => {
   const [currentSpeed, setCurrentSpeed] = useState<number>(() => {
     try {
-      return speechEngine.getRate() || 1.0;
+      return normalizeSpeed(speechEngine.getRate());
     } catch {
       return 1.0;
     }
   });
   const [isDismissedByUser, setIsDismissedByUser] = useState<boolean>(false);
+  const [showSpeedNotice, setShowSpeedNotice] = useState<boolean>(false);
   const t = translations[currentLang];
 
   useEffect(() => {
     const rate = speechEngine.getRate();
     if (rate && Number.isFinite(rate)) {
-      setCurrentSpeed(rate);
+      setCurrentSpeed(normalizeSpeed(rate));
     }
   }, [isPlaying, isPaused]);
 
@@ -105,11 +106,18 @@ export const AudioPlayerBar: React.FC<AudioPlayerBarProps> = ({
 
   const cycleSpeed = (e: React.MouseEvent) => {
     e.stopPropagation();
-    const speeds = [0.75, 1.0, 1.25, 1.5];
-    const currentIndex = speeds.indexOf(currentSpeed);
-    const nextSpeed = speeds[(currentIndex + 1) % speeds.length];
+    const normalized = normalizeSpeed(currentSpeed);
+    const currentIndex = SPEED_OPTIONS.indexOf(normalized);
+    const nextSpeed = SPEED_OPTIONS[(currentIndex + 1) % SPEED_OPTIONS.length];
     setCurrentSpeed(nextSpeed);
     onSetRate(nextSpeed);
+
+    if (nextSpeed === 2.5) {
+      setShowSpeedNotice(true);
+      setTimeout(() => setShowSpeedNotice(false), 3000);
+    } else {
+      setShowSpeedNotice(false);
+    }
   };
 
   const formatTime = (sec: number) => {
@@ -373,14 +381,22 @@ export const AudioPlayerBar: React.FC<AudioPlayerBarProps> = ({
             <SkipForward className="w-4 h-4" />
           </button>
 
-          {/* Speed Pill (Visible on PC and Mobile) */}
-          <button
-            onClick={cycleSpeed}
-            className="px-2 py-1 rounded-full bg-[#f0f5f1] text-[#2d5a37] text-[10px] sm:text-xs font-bold border border-[#d6e7da] hover:bg-[#e4efe6] active:scale-95 transition-all inline-flex items-center justify-center shrink-0"
-            title="Tốc độ đọc"
-          >
-            {currentSpeed}x
-          </button>
+          {/* Speed Pill with Accessible Touch Target & 2.5x Notice */}
+          <div className="relative shrink-0">
+            <button
+              onClick={cycleSpeed}
+              aria-label={`Tốc độ đọc: ${currentSpeed}x`}
+              className="min-h-[44px] min-w-[44px] px-2.5 py-1.5 rounded-full bg-[#f0f5f1] text-[#2d5a37] text-xs font-bold border border-[#d6e7da] hover:bg-[#e4efe6] active:scale-95 transition-all inline-flex items-center justify-center shrink-0"
+              title="Tốc độ đọc (0.7x, 1x, 1.25x, 1.5x, 2.5x)"
+            >
+              {currentSpeed}x
+            </button>
+            {showSpeedNotice && (
+              <div className="absolute bottom-full right-0 mb-2 px-2.5 py-1 rounded-lg bg-amber-600 text-white text-[10px] font-semibold whitespace-nowrap shadow-lg animate-bounce pointer-events-none z-50">
+                Tốc độ nhanh, có thể khó nghe rõ
+              </div>
+            )}
+          </div>
 
           {/* Voice Selector Quick Button */}
           <button
