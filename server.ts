@@ -28,9 +28,10 @@ async function startServer() {
   // API Routes (3-Tier architecture: Controllers -> Services -> Repositories)
   app.use('/api', apiRouter);
 
-  // Serve static public assets (including worker scripts and audio)
+  // Serve static public assets (including worker scripts, uploads and audio)
   app.use(express.static(path.resolve(__dirname, 'public')));
   app.use('/audio', express.static(path.resolve(__dirname, 'public/audio')));
+  app.use('/uploads', express.static(path.resolve(__dirname, 'public/uploads')));
 
   // Dedicated MapLibre GL Worker routes with explicit JavaScript MIME type
   const serveWorker = (_req: express.Request, res: express.Response) => {

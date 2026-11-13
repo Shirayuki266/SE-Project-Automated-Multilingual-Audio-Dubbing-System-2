@@ -26,15 +26,18 @@ export const WelcomeModal: React.FC<WelcomeModalProps> = ({
   // Device Fingerprint Checking (Chỉ ghi nhận 1 thiết bị truy cập/ngày)
   React.useEffect(() => {
     getBrowserFingerprint().then((fp) => {
-      fetch('/api/analytics/device-checkin', {
+      fetch('/api/visit/checkin', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fingerprintHash: fp, language: currentLang }),
+        body: JSON.stringify({ deviceId: fp }),
       })
         .then((r) => r.json())
         .then((res) => {
           if (res.success && res.data) {
-            setDeviceStatus(res.data);
+            setDeviceStatus({
+              isNewToday: res.data.isNewToday,
+              message: res.data.message,
+            });
           }
         })
         .catch(() => {});
@@ -47,12 +50,11 @@ export const WelcomeModal: React.FC<WelcomeModalProps> = ({
     setIsSubmitting(true);
     try {
       const fingerprintHash = await getBrowserFingerprint();
-      await fetch('/api/analytics/pilgrimage-start', {
+      await fetch('/api/visit/checkin', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          fingerprintHash,
-          language: currentLang,
+          deviceId: fingerprintHash,
         }),
       });
     } catch (err) {

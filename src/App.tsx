@@ -150,11 +150,11 @@ export default function App() {
 
   const fetchVisitorStats = async () => {
     try {
-      const res = await fetch('/api/analytics/stats');
+      const res = await fetch('/api/visit/today-count');
       const data = await res.json();
       if (data.success && data.data) {
-        setTodayStartsCount(data.data.todayTotal || 0);
-        setUniquePilgrimsCount(data.data.todayUniquePilgrims || 0);
+        setTodayStartsCount(data.data.todayUniqueVisitors || 1);
+        setUniquePilgrimsCount(data.data.todayUniqueVisitors || 1);
       }
     } catch (e) {
       console.warn('Stats fetch notice:', e);
@@ -178,32 +178,21 @@ export default function App() {
     fetchVisitorStats();
     fetchDefaultVoice();
 
-    // Check in device fingerprint for strict daily deduplication & MongoDB real_devices table
+    // Check in device fingerprint for strict daily deduplication (1 máy = 1 người = 1 lượt/ngày)
     getBrowserFingerprint().then((fp) => {
-      fetch('/api/analytics/device-checkin', {
+      fetch('/api/visit/checkin', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fingerprintHash: fp, language: currentLang }),
+        body: JSON.stringify({ deviceId: fp }),
       })
         .then((r) => r.json())
         .then((res) => {
           if (res.success && res.data) {
-            setTodayStartsCount(res.data.todayUniqueDevices || 1);
+            setTodayStartsCount(res.data.todayUniqueVisitors || 1);
+            setUniquePilgrimsCount(res.data.todayUniqueVisitors || 1);
           }
         })
         .catch(() => {});
-
-      // Ghi nhận thiết bị thực tế vào bảng MongoDB "real_devices" (Không tạo ảo)
-      fetch('/api/real-devices/checkin', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          deviceId: fp,
-          screenResolution: typeof window !== 'undefined' ? `${window.screen.width}x${window.screen.height}` : undefined,
-          language: typeof navigator !== 'undefined' ? navigator.language : currentLang,
-          timezone: typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : 'Asia/Ho_Chi_Minh',
-        }),
-      }).catch(() => {});
     });
   }, []);
 
