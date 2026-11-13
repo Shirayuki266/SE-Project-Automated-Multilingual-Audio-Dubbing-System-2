@@ -207,16 +207,17 @@ export const VoiceSelectorModal: React.FC<VoiceSelectorModalProps> = ({
               <input
                 type="range"
                 min="0.7"
-                max="1.4"
+                max="2.5"
                 step="0.05"
                 value={rate}
                 onChange={(e) => handleRateChange(parseFloat(e.target.value))}
                 className="w-full accent-[#2d5a37] h-1.5 bg-[#e2eae4] rounded-lg cursor-pointer"
               />
               <div className="flex justify-between text-[10px] text-[#7a8e80] mt-1">
-                <span>0.7x (Chậm rãi)</span>
+                <span>0.7x (Chậm)</span>
                 <span>1.0x (Chuẩn)</span>
-                <span>1.4x (Nhanh)</span>
+                <span>1.5x (Nhanh)</span>
+                <span>2.5x (Tối đa)</span>
               </div>
             </div>
 
