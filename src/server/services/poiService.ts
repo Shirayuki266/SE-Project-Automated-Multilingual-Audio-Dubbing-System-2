@@ -1,5 +1,6 @@
 import { poiRepository } from '../repositories/poiRepository.js';
 import { RichPOI, POIEntity, Campus } from '../types.js';
+import { fileStorageService } from './fileStorageService.js';
 
 export class POIService {
   public getAllPOIs(campusId?: string): RichPOI[] {
@@ -49,20 +50,22 @@ export class POIService {
           .slice(0, 15)
           .toUpperCase();
 
-    const poiPayload: Omit<POIEntity, 'poi_id' | 'created_at'> = {
-      campus_id: data.campus_id || 'vnqt-campus-01',
-      code,
-      latitude: lat,
-      longitude: lng,
-      geofence_radius: radius,
-      location_type: data.location_type || data.category || 'sanctuary',
-      qr_code_url: `/?poi=${code}`,
-    };
+    const image = data.image || data.imageUrl || data.image_url;
 
     return poiRepository.create(
-      poiPayload,
+      {
+        campus_id: data.campus_id || 'vnqt-campus-01',
+        code,
+        category: data.category || 'hall',
+        latitude: lat,
+        longitude: lng,
+        geofence_radius: radius,
+        display_order: Number(data.display_order) || 1,
+        image,
+        updated_at: new Date().toISOString(),
+      },
       { title, intro, desc, lang: 'vi' },
-      data.image_url || data.imageUrl
+      image
     );
   }
 
@@ -76,14 +79,38 @@ export class POIService {
     if (updates.latitude !== undefined) payload.latitude = Number(updates.latitude);
     if (updates.longitude !== undefined) payload.longitude = Number(updates.longitude);
     if (updates.geofence_radius !== undefined) payload.geofence_radius = Number(updates.geofence_radius);
-    if (updates.location_type) payload.location_type = updates.location_type;
+    if (updates.category) payload.category = updates.category;
     if (updates.code) payload.code = updates.code;
+    if (updates.display_order !== undefined) payload.display_order = Number(updates.display_order);
+
+    const newImage = updates.image || updates.imageUrl || updates.image_url;
+    if (newImage && newImage !== existing.image) {
+      payload.image = newImage;
+      // Dọn file ảnh cũ nếu trước đó là ảnh tự upload
+      if (existing.image && existing.image.startsWith('/uploads/')) {
+        fileStorageService.deleteUploadedImage(existing.image);
+      }
+    }
 
     const updated = poiRepository.update(id, payload);
     if (!updated) {
       throw new Error(`Cập nhật điểm POI thất bại.`);
     }
-    return updated;
+
+    // Nếu có cập nhật bài viết tiếng Việt trong payload
+    if (updates.title_vi || updates.description_vi) {
+      this.saveTranslation(
+        id,
+        'vi',
+        updates.title_vi || existing.translations['vi']?.title || existing.code,
+        updates.description_vi || existing.translations['vi']?.description || '',
+        existing.translations['vi']?.audio_url,
+        updates.intro_vi || existing.translations['vi']?.introduction,
+        true
+      );
+    }
+
+    return poiRepository.findById(id) || updated;
   }
 
   public deletePOI(id: string): boolean {
@@ -91,10 +118,29 @@ export class POIService {
     if (!existing) {
       throw new Error(`Không tìm thấy điểm POI với mã "${id}".`);
     }
+
+    // Dọn file ảnh upload
+    if (existing.image && existing.image.startsWith('/uploads/')) {
+      fileStorageService.deleteUploadedImage(existing.image);
+    }
+    existing.media?.forEach((m) => {
+      if (m.image_url && m.image_url.startsWith('/uploads/')) {
+        fileStorageService.deleteUploadedImage(m.image_url);
+      }
+    });
+
     return poiRepository.delete(id);
   }
 
-  public saveTranslation(poiId: string, lang: string, title: string, desc: string, audioUrl?: string, intro?: string) {
+  public saveTranslation(
+    poiId: string,
+    lang: string,
+    title: string,
+    desc: string,
+    audioUrl?: string,
+    intro?: string,
+    isManuallyEdited: boolean = true
+  ) {
     const existing = poiRepository.findById(poiId);
     if (!existing) {
       throw new Error(`Không tìm thấy điểm POI với mã "${poiId}".`);
@@ -109,7 +155,7 @@ export class POIService {
       description: desc,
       audio_url: audioUrl || existingTrans?.audio_url || `/audio/${poiId}-${lang.toLowerCase()}.mp3`,
       is_ai_generated: false,
-      is_manually_edited: true,
+      is_manually_edited: isManuallyEdited,
       updated_at: new Date().toISOString(),
     };
     poiRepository.saveTranslation(trans);
@@ -132,6 +178,11 @@ export class POIService {
   }
 
   public deleteMedia(mediaId: string, poiId: string) {
+    const existing = poiRepository.findById(poiId);
+    const mediaItem = existing?.media?.find((m) => m.media_id === mediaId);
+    if (mediaItem?.image_url?.startsWith('/uploads/')) {
+      fileStorageService.deleteUploadedImage(mediaItem.image_url);
+    }
     poiRepository.deleteMedia(mediaId);
     return poiRepository.findById(poiId);
   }

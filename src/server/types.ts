@@ -1,3 +1,7 @@
+/**
+ * Vietnam Quoc Tu Audio Guide Data Types
+ */
+
 export interface Campus {
   campus_id: string;
   name: string;
@@ -10,35 +14,38 @@ export interface Campus {
   created_at: string;
 }
 
-export interface GeoJSONPoint {
-  type: 'Point';
-  coordinates: [number, number]; // [longitude, latitude] per GeoJSON standard
-}
-
 export interface POIEntity {
   poi_id: string;
   campus_id: string;
-  code: string; // e.g. "VNQT-01" or "TAM-QUAN"
+  code: string;
+  category?: 'gate' | 'tower' | 'hall' | 'monument' | 'garden' | 'bell';
+  location_type?: string;
   latitude: number;
   longitude: number;
-  location?: GeoJSONPoint; // MongoDB 2dsphere GeoJSON Point
-  geofence_radius: number; // 10 - 30m
-  location_type: 'gate' | 'sanctuary' | 'stupa' | 'bell' | 'garden' | 'memorial' | 'statue' | 'ancestral';
+  geofence_radius: number; // in meters
+  display_order?: number;
+  image?: string;
   qr_code_url?: string;
   created_at: string;
+  updated_at?: string;
+  location?: {
+    type: 'Point';
+    coordinates: [number, number]; // [lng, lat]
+  };
 }
 
 export interface POITranslation {
   translation_id: string;
   poi_id: string;
-  language_code: string; // 'vi', 'en', 'zh', 'ja', 'ko', 'fr', 'de', 'es', 'ru', 'th', 'id', 'it', 'hi'
+  language_code: string;
   title: string;
-  introduction?: string; // Giới thiệu tóm tắt điểm di tích
-  description: string;   // Nội dung bài thuyết minh chi tiết
+  introduction: string;
+  description: string;
   audio_url?: string;
-  is_ai_generated?: boolean;
+  is_ai_generated: boolean;
   is_manually_edited?: boolean;
   updated_at?: string;
+  audio_updated_at?: string;
 }
 
 export interface POIMedia {
@@ -72,105 +79,16 @@ export interface RichPOI extends POIEntity {
 
 export type POI = RichPOI;
 
-export interface DeviceAccessRecord {
-  id: string;
-  fingerprintHash: string;
-  shortId: string;
-  dateStr: string;
-  firstAccessAt: string;
-  lastAccessAt: string;
-  accessCountToday: number;
-  language: string;
-  deviceType: string;
-  userAgent?: string;
-  ipHash?: string;
+// Collection daily_visits schema: 1 thiết bị = 1 người = tối đa 1 lượt tính trong 1 ngày
+export interface DailyVisitDocument {
+  visitorHash: string; // HMAC-SHA256(salt, deviceId + userAgent)
+  day: string;         // 'YYYY-MM-DD' (Asia/Ho_Chi_Minh)
+  createdAt: Date;     // TTL 24h
 }
 
-export interface DeviceCheckinResult {
-  fingerprintHash: string;
-  dateStr: string;
+export interface DailyVisitCheckinResult {
+  day: string;
   isNewToday: boolean;
-  accessCountToday: number;
-  firstAccessAt: string;
-  lastAccessAt: string;
-  todayUniqueDevices: number;
+  todayUniqueVisitors: number;
   message: string;
 }
-
-export interface VisitorAnalyticsFilter {
-  preset?: 'today' | 'this_month' | 'this_year' | 'all' | 'custom';
-  startDate?: string;
-  endDate?: string;
-  search?: string;
-}
-
-export interface VisitorAnalyticsResponse {
-  summary: {
-    totalDevices: number;
-    totalAccesses: number;
-    avgAccessPerDevice: number;
-    todayDevices: number;
-    todayAccesses: number;
-    filterLabel: string;
-  };
-  chartData: { date: string; devices: number; accesses: number }[];
-  records: DeviceAccessRecord[];
-}
-
-export interface PilgrimageStats {
-  todayTotal: number;
-  todayUniquePilgrims: number;
-  allTimeTotal: number;
-  allTimeUniquePilgrims: number;
-  topLanguages: { language: string; count: number }[];
-  hourlyActivity: { hour: number; count: number }[];
-  topPois: { poiId: string; title: string; count: number }[];
-  lastPilgrimageAt?: string;
-}
-
-// Bảng MongoDB: Quản lý các thiết bị đăng nhập/truy cập thực (Không tạo ảo)
-export interface RealDeviceEntity {
-  device_id: string; // Hash định danh phần cứng/canvas/webgl thực tế
-  short_id: string; // Mã định danh DEV-XXXXXX
-  ip_address: string; // Địa chỉ IP thực từ kết nối mạng
-  device_type: string; // iPhone, Android, MacBook, Windows PC, iPad...
-  browser: string; // Chrome, Safari, Firefox, Edge...
-  os: string; // iOS, Android, macOS, Windows, Linux...
-  screen_resolution?: string; // Ví dụ: 1920x1080, 390x844
-  language?: string; // vi-VN, en-US...
-  timezone?: string; // Asia/Ho_Chi_Minh...
-  user_agent: string; // User-Agent gốc từ HTTP header
-  first_seen_at: string; // Thời điểm thiết bị thực lần đầu xuất hiện
-  last_seen_at: string; // Thời điểm thiết bị thực truy cập gần nhất
-  total_visits: number; // Tổng số lần thiết bị thực truy cập
-  today_visits: number; // Số lần truy cập trong ngày hôm nay
-  last_login_at?: string; // Thời điểm đăng nhập gần nhất (nếu có đăng nhập tài khoản)
-  logged_username?: string; // Tên tài khoản quản trị/người dùng đã đăng nhập (e.g. 'admin')
-  role: 'visitor' | 'admin'; // Vai trò thiết bị
-  status: 'active' | 'blocked'; // Trạng thái: đang hoạt động hoặc bị chặn
-  notes?: string; // Ghi chú của quản trị viên
-  created_at: string;
-  updated_at: string;
-}
-
-export interface RealDeviceFilter {
-  search?: string;
-  role?: 'all' | 'visitor' | 'admin';
-  status?: 'all' | 'active' | 'blocked';
-  deviceType?: string;
-}
-
-export interface RealDeviceSummary {
-  totalRealDevices: number;
-  activeToday: number;
-  adminLogins: number;
-  blockedCount: number;
-  mongoCollection: string;
-  isRemoteConnected: boolean;
-}
-
-export interface RealDeviceResponse {
-  summary: RealDeviceSummary;
-  devices: RealDeviceEntity[];
-}
-

@@ -24,14 +24,7 @@ export class AuthController {
         '127.0.0.1';
 
       if (result.user) {
-        db.recordRealDeviceLogin({
-          deviceId: (deviceId as string) || (req.headers['x-device-id'] as string),
-          username: result.user.username,
-          role: 'admin',
-          ipAddress,
-          userAgent,
-          screenResolution,
-        }).catch((err) => console.warn('[MongoDB real_devices] login sync notice:', err.message));
+        db.updateAdminLastLogin(result.user.user_id);
       }
 
       return res.json({

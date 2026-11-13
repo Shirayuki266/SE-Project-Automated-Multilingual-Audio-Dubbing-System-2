@@ -1,17 +1,30 @@
-import { db } from './db.js';
+import { db, calculateHaversineDistance } from './db.js';
 import { RichPOI, POIEntity, Campus } from '../types.js';
 
 export class POIRepository {
   public findAll(campusId?: string): RichPOI[] {
-    return db.getAllRichPOIs(campusId);
+    const pois = db.getAllPOIs();
+    if (!campusId) return pois;
+    return pois.filter((p) => p.campus_id === campusId);
   }
 
   public findById(id: string): RichPOI | undefined {
-    return db.getRichPOIById(id);
+    return db.getRichPOIById(id) || undefined;
   }
 
   public findNearby(lat: number, lng: number, campusId?: string) {
-    return db.findNearbyPOIs(lat, lng, campusId);
+    const all = this.findAll(campusId);
+    return all
+      .map((poi) => {
+        const distance = calculateHaversineDistance(lat, lng, poi.latitude, poi.longitude);
+        const isInside = distance <= poi.geofence_radius;
+        return {
+          poi,
+          distanceMeters: Math.round(distance),
+          isInsideGeofence: isInside,
+        };
+      })
+      .sort((a, b) => a.distanceMeters - b.distanceMeters);
   }
 
   public create(
@@ -19,7 +32,11 @@ export class POIRepository {
     translation?: { title: string; desc: string; lang: string; intro?: string },
     imageUrl?: string
   ): RichPOI {
-    return db.createPOI(poiData, translation, imageUrl);
+    return db.createPOI({
+      ...poiData,
+      initialTranslation: translation,
+      imageUrl,
+    });
   }
 
   public update(id: string, updates: Partial<POIEntity>): RichPOI | null {

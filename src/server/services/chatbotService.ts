@@ -154,7 +154,7 @@ export class ChatbotService {
       };
     }
 
-    const allPois: RichPOI[] = db.getAllRichPOIs();
+    const allPois: RichPOI[] = db.getAllPOIs();
     const hasGps = typeof userLat === 'number' && typeof userLng === 'number' && !Number.isNaN(userLat) && !Number.isNaN(userLng);
 
     // 1. Check if user is asking for directions to a specific POI

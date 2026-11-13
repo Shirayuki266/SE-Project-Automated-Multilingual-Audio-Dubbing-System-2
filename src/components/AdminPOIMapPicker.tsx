@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 import { RichPOI } from '../server/types.js';
 import { MapPin, Navigation, Maximize2, Info } from 'lucide-react';
 
@@ -37,16 +38,17 @@ export const AdminPOIMapPicker: React.FC<AdminPOIMapPickerProps> = ({
       center: [initialLat, initialLng],
       zoom: 18,
       minZoom: 15,
-      maxZoom: 20,
+      maxZoom: 22,
       zoomControl: false,
     });
 
     L.control.zoom({ position: 'topright' }).addTo(map);
 
-    // Street map layer (fast, high detail, unblocked)
+    // Street map layer (Fast, high detail, no overzoom crash)
     L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
-      attribution: '&copy; Esri',
-      maxZoom: 19,
+      attribution: '&copy; Esri World Street Map',
+      maxNativeZoom: 19,
+      maxZoom: 22,
     }).addTo(map);
 
     // Campus boundary outline
@@ -88,7 +90,7 @@ export const AdminPOIMapPicker: React.FC<AdminPOIMapPickerProps> = ({
         m.bindTooltip(`<b>${title}</b><br/>${p.code}`, { direction: 'top' });
       });
 
-    // Active POI Marker Icon (Prominent Amber / Red Target Pin)
+    // Active POI Marker Icon (Prominent Target Pin)
     const activeIcon = L.divIcon({
       className: 'custom-active-pick-marker',
       html: `
@@ -102,14 +104,12 @@ export const AdminPOIMapPicker: React.FC<AdminPOIMapPickerProps> = ({
       iconSize: [0, 0],
     });
 
-    // Create Active Target Marker
     const targetMarker = L.marker([initialLat, initialLng], {
       icon: activeIcon,
       draggable: true,
       zIndexOffset: 2000,
     }).addTo(map);
 
-    // Create Geofence Radius Circle Preview
     const targetCircle = L.circle([initialLat, initialLng], {
       radius: geofenceRadius || 20,
       color: '#b45309',
@@ -122,7 +122,6 @@ export const AdminPOIMapPicker: React.FC<AdminPOIMapPickerProps> = ({
     activeMarkerRef.current = targetMarker;
     activeCircleRef.current = targetCircle;
 
-    // Handle Drag
     targetMarker.on('dragend', () => {
       const pos = targetMarker.getLatLng();
       const roundedLat = Math.round(pos.lat * 100000) / 100000;
@@ -131,7 +130,6 @@ export const AdminPOIMapPicker: React.FC<AdminPOIMapPickerProps> = ({
       onCoordinatesChange(roundedLat, roundedLng);
     });
 
-    // Handle Map Click to Reposition Pin
     map.on('click', (e) => {
       const lat = Math.round(e.latlng.lat * 100000) / 100000;
       const lng = Math.round(e.latlng.lng * 100000) / 100000;
@@ -142,19 +140,34 @@ export const AdminPOIMapPicker: React.FC<AdminPOIMapPickerProps> = ({
 
     mapRef.current = map;
 
-    // Timers to handle modal layout transitions & invalidateSize
-    const t1 = setTimeout(() => map.invalidateSize(), 150);
-    const t2 = setTimeout(() => map.invalidateSize(), 400);
+    // Sửa lỗi modal kích thước 0: gọi invalidateSize nhiều pha và dùng ResizeObserver
+    const invalidate = () => {
+      try {
+        map.invalidateSize();
+      } catch {}
+    };
+    const t1 = setTimeout(invalidate, 100);
+    const t2 = setTimeout(invalidate, 300);
+    const t3 = setTimeout(invalidate, 600);
+
+    let resizeObserver: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined' && containerRef.current) {
+      resizeObserver = new ResizeObserver(() => {
+        invalidate();
+      });
+      resizeObserver.observe(containerRef.current);
+    }
 
     return () => {
       clearTimeout(t1);
       clearTimeout(t2);
+      clearTimeout(t3);
+      if (resizeObserver) resizeObserver.disconnect();
       map.remove();
       mapRef.current = null;
     };
   }, []);
 
-  // Update marker & circle when latitude / longitude changes from external inputs
   useEffect(() => {
     if (!mapRef.current || !activeMarkerRef.current || !activeCircleRef.current) return;
     if (isNaN(latitude) || isNaN(longitude)) return;
@@ -166,21 +179,18 @@ export const AdminPOIMapPicker: React.FC<AdminPOIMapPickerProps> = ({
     }
   }, [latitude, longitude]);
 
-  // Update circle radius when geofenceRadius changes
   useEffect(() => {
     if (activeCircleRef.current && geofenceRadius) {
       activeCircleRef.current.setRadius(geofenceRadius);
     }
   }, [geofenceRadius]);
 
-  // Recenter to Temple Center
   const handleRecenterTemple = () => {
     if (mapRef.current) {
       mapRef.current.flyTo([10.77135, 106.67135], 18, { duration: 0.8 });
     }
   };
 
-  // Get User Current GPS
   const handleGetCurrentLocation = () => {
     if ('geolocation' in navigator) {
       navigator.geolocation.getCurrentPosition(
@@ -206,9 +216,9 @@ export const AdminPOIMapPicker: React.FC<AdminPOIMapPickerProps> = ({
 
   return (
     <div className="space-y-2">
-      <div className="relative w-full h-72 sm:h-80 rounded-2xl overflow-hidden border-2 border-[#2d5a37]/30 shadow-inner bg-[#f7f9f6]">
+      <div className="relative w-full h-72 sm:h-80 min-h-[280px] rounded-2xl overflow-hidden border-2 border-[#2d5a37]/30 shadow-inner bg-[#f7f9f6]">
         {/* Leaflet Map Div */}
-        <div ref={containerRef} className="w-full h-full z-0 select-none cursor-crosshair" />
+        <div ref={containerRef} className="w-full h-full min-h-[280px] z-0 select-none cursor-crosshair" />
 
         {/* Top Floating Helper Overlay */}
         <div className="absolute top-2.5 left-2.5 right-2.5 z-[1000] pointer-events-none flex items-center justify-between gap-2">

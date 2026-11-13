@@ -558,11 +558,33 @@ function buildGeofenceGeoJSON(poisList: RichPOI[], activeId: string | null): { a
 
     map.on('load', () => {
       setIsMapReady(true);
+      try {
+        map.resize();
+      } catch {}
     });
 
     mapRef.current = map;
 
+    // Resize triggers for mobile layout changes and orientation
+    const t1 = setTimeout(() => {
+      try { map.resize(); } catch {}
+    }, 200);
+    const t2 = setTimeout(() => {
+      try { map.resize(); } catch {}
+    }, 600);
+
+    let resizeObserver: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined' && mapContainerRef.current) {
+      resizeObserver = new ResizeObserver(() => {
+        try { map.resize(); } catch {}
+      });
+      resizeObserver.observe(mapContainerRef.current);
+    }
+
     return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      if (resizeObserver) resizeObserver.disconnect();
       markersRef.current.forEach((m) => m.remove());
       markersRef.current = [];
       if (userMarkerRef.current) {
