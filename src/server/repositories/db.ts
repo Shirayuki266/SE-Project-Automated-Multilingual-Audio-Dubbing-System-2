@@ -256,6 +256,7 @@ class MongoDatabaseEngine {
     longitude: number;
     geofence_radius?: number;
     display_order?: number;
+    priority?: number;
     image?: string;
     qr_code_url?: string;
     initialTranslation?: {
@@ -278,6 +279,7 @@ class MongoDatabaseEngine {
       longitude: Number(payload.longitude),
       geofence_radius: payload.geofence_radius || 20,
       display_order: payload.display_order || this.pois.size + 1,
+      priority: Number(payload.priority) || 0,
       image: payload.image || payload.imageUrl,
       created_at: now,
       updated_at: now,

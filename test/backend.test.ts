@@ -222,4 +222,104 @@ async function testPoiListenTracking() {
 }
 await testPoiListenTracking();
 
+// =========================================================================
+// 8. THUẬT TOÁN ĐỊNH TUYẾN GEOFENCE NÂNG CAO (PRIORITY, HYSTERESIS & LOCKING)
+// Mô phỏng 2 POI tâm cách nhau 15m (R=20m và R=30m) tại 5 vị trí người dùng
+// =========================================================================
+import { selectBestCandidatePOI } from '../src/utils/geo.js';
+
+function testGeofenceResolutionAndLocking() {
+  // Tâm POI A tại (10.771000, 106.671000)
+  // 1 mét vĩ độ xấp xỉ 1 / 111111 = 0.000009 độ
+  const baseLat = 10.771;
+  const baseLng = 106.671;
+  const metersToLat = (m: number) => baseLat + (m / 111111);
+
+  // POI A: tâm cách gốc 0m, bán kính 20m, display_order = 1, priority = 0
+  const poiA = {
+    poi_id: 'poi-A',
+    code: 'POI-A',
+    latitude: metersToLat(0),
+    longitude: baseLng,
+    geofence_radius: 20,
+    priority: 0,
+    display_order: 1,
+  };
+
+  // POI B: tâm cách gốc 15m (cách A 15m), bán kính 30m, display_order = 2, priority = 0
+  const poiB = {
+    poi_id: 'poi-B',
+    code: 'POI-B',
+    latitude: metersToLat(15),
+    longitude: baseLng,
+    geofence_radius: 30,
+    priority: 0,
+    display_order: 2,
+  };
+
+  const poiList = [poiA, poiB];
+
+  // 8.1 Vị trí 1: Gần tâm A (x = 2m)
+  // d_A = 2m (ratio 2/20 = 0.10), d_B = 13m (ratio 13/30 = 0.433)
+  const atPos1 = selectBestCandidatePOI(poiList, metersToLat(2), baseLng);
+  assert(atPos1 !== null);
+  assert.strictEqual(atPos1.poi.poi_id, 'poi-A', 'Vị trí 1 (gần tâm A 2m): Phải chọn POI A vì ratio thâm nhập nhỏ hơn');
+
+  // 8.2 Vị trí 2: Gần tâm B (x = 14m)
+  // d_A = 14m (ratio 14/20 = 0.70), d_B = 1m (ratio 1/30 = 0.033)
+  const atPos2 = selectBestCandidatePOI(poiList, metersToLat(14), baseLng);
+  assert(atPos2 !== null);
+  assert.strictEqual(atPos2.poi.poi_id, 'poi-B', 'Vị trí 2 (gần tâm B 1m): Phải chọn POI B vì ratio thâm nhập nhỏ hơn');
+
+  // 8.3 Vị trí 3: Ở chính giữa (x = 7.5m)
+  // Cùng priority=0: d_A = 7.5m (ratio 7.5/20 = 0.375), d_B = 7.5m (ratio 7.5/30 = 0.250) -> B thắng vì thâm nhập sâu hơn tương đối
+  const atPos3Default = selectBestCandidatePOI(poiList, metersToLat(7.5), baseLng);
+  assert(atPos3Default !== null);
+  assert.strictEqual(atPos3Default.poi.poi_id, 'poi-B', 'Vị trí 3 (giữa, cùng priority): B thắng vì ratio 0.250 < 0.375');
+
+  // Nhưng nếu POI A có priority = 1 (cao hơn POI B priority = 0) -> A THẮNG TUYỆT ĐỐI
+  const poiAWithPriority = { ...poiA, priority: 1 };
+  const atPos3Priority = selectBestCandidatePOI([poiAWithPriority, poiB], metersToLat(7.5), baseLng);
+  assert(atPos3Priority !== null);
+  assert.strictEqual(atPos3Priority.poi.poi_id, 'poi-A', 'Vị trí 3 (A có priority=1): A thắng tuyệt đối bất kể ratio hay khoảng cách');
+
+  // 8.4 Vị trí 4: Ngoài cả hai (x = 50m)
+  // d_A = 50m > 20m, d_B = 35m > 30m -> null
+  const atPos4 = selectBestCandidatePOI(poiList, metersToLat(50), baseLng);
+  assert.strictEqual(atPos4, null, 'Vị trí 4 (ngoài cả hai): Phải trả về null (không kích hoạt)');
+
+  // 8.5 Vị trí 5: Đi từ A sang B khi POI A đang phát (Single-playback Locking)
+  // Bắt đầu tại x=0, phát A. Khi bước đến x=2m, 7.5m, 14m (vùng giao của B):
+  // Nhờ cơ chế Locking, POI A KHÔNG BỊ NGẮT nếu B không có priority cao hơn!
+  const walkingWhilePlayingA = selectBestCandidatePOI(poiList, metersToLat(12), baseLng, {
+    currentPoiId: 'poi-A',
+    isPlaying: true,
+  });
+  assert(walkingWhilePlayingA !== null);
+  assert.strictEqual(walkingWhilePlayingA.poi.poi_id, 'poi-A', 'Đang phát POI A: Không bị POI B ngắt khi bước vào vùng giao nhau');
+
+  // Khi đi hẳn ra ngoài vùng thoát của A (> 20m + 8m buffer = 28m), ví dụ x = 30m:
+  // POI A thoát hẳn, quyền phát được chuyển sang B (nếu B vẫn thỏa mãn d_B = 15m <= 30m)
+  const walkingOutOfA = selectBestCandidatePOI(poiList, metersToLat(30), baseLng, {
+    currentPoiId: 'poi-A',
+    isPlaying: true,
+    hysteresisBufferMeters: 8,
+  });
+  assert(walkingOutOfA !== null);
+  assert.strictEqual(walkingOutOfA.poi.poi_id, 'poi-B', 'Khi bước ra ngoài bán kính thoát của A (>28m): Tự động chuyển sang POI B');
+
+  // 8.6 Hysteresis chống nhiễu GPS (Flapping Prevention khi đứng ở ranh giới)
+  // Khi không phát nhưng đang ở A (x=6m, ratio_A = 0.30, ratio_B = 9/30 = 0.30)
+  const boundaryHysteresis = selectBestCandidatePOI(poiList, metersToLat(6), baseLng, {
+    currentPoiId: 'poi-A',
+    isPlaying: false,
+    switchRatioMargin: 0.15,
+  });
+  assert(boundaryHysteresis !== null);
+  assert.strictEqual(boundaryHysteresis.poi.poi_id, 'poi-A', 'Hysteresis: Biên độ chưa chênh lệch >=15% thì giữ nguyên POI hiện tại, tránh nhảy giật');
+
+  console.log('✅ Hierarchical POI Selection, Priority, Single-playback Locking & Hysteresis verified (5 positions simulation passed).');
+}
+testGeofenceResolutionAndLocking();
+
 console.log('🎉 All backend tests passed successfully!');

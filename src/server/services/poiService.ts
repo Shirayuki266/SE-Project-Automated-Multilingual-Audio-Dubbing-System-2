@@ -61,6 +61,7 @@ export class POIService {
         longitude: lng,
         geofence_radius: radius,
         display_order: Number(data.display_order) || 1,
+        priority: Number(data.priority) || 0,
         image,
         updated_at: new Date().toISOString(),
       },
@@ -82,6 +83,7 @@ export class POIService {
     if (updates.category) payload.category = updates.category;
     if (updates.code) payload.code = updates.code;
     if (updates.display_order !== undefined) payload.display_order = Number(updates.display_order);
+    if (updates.priority !== undefined) payload.priority = Number(updates.priority) || 0;
 
     const newImage = updates.image || updates.imageUrl || updates.image_url;
     if (newImage && newImage !== existing.image) {

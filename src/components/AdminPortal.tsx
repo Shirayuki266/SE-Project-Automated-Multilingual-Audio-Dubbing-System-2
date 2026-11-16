@@ -152,6 +152,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     location_type: 'sanctuary' as any,
     image_url: 'https://images.unsplash.com/photo-1544644181-1484b3fdfc62?auto=format&fit=crop&w=1200&q=80',
     display_order: 1,
+    priority: 0,
   });
 
   // Health & Daily Visit States
@@ -442,6 +443,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       location_type: 'sanctuary',
       image_url: 'https://images.unsplash.com/photo-1544644181-1484b3fdfc62?auto=format&fit=crop&w=1200&q=80',
       display_order: pois.length + 1,
+      priority: 0,
     });
   };
 
@@ -461,6 +463,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       location_type: poi.location_type || poi.category || 'sanctuary',
       image_url: poi.image || poi.media[0]?.image_url || '',
       display_order: poi.display_order || 1,
+      priority: poi.priority ?? 0,
     });
   };
 
@@ -1781,7 +1784,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                           }}
                         />
                       ) : (
-                        <div className="grid grid-cols-3 gap-3 p-3 bg-[#f7f9f6] rounded-2xl border border-[#e2eae4]">
+                        <div className="grid grid-cols-2 gap-3 p-3 bg-[#f7f9f6] rounded-2xl border border-[#e2eae4]">
                           <div>
                             <label className="block text-xs font-semibold text-[#19231b] mb-1">Vĩ Độ (Lat)</label>
                             <input
@@ -1804,20 +1807,44 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                               required
                             />
                           </div>
-                          <div>
-                            <label className="block text-xs font-semibold text-[#19231b] mb-1">Bán Kính (m)</label>
-                            <input
-                              type="number"
-                              min="5"
-                              max="50"
-                              value={formData.geofence_radius}
-                              onChange={(e) => setFormData({ ...formData, geofence_radius: parseInt(e.target.value) || 20 })}
-                              className="w-full px-3 py-2 rounded-xl bg-white border border-[#e2eae4] text-xs font-mono"
-                              required
-                            />
-                          </div>
                         </div>
                       )}
+
+                      {/* Bán Kính Geofence & Độ Ưu Tiên Phát Tự Động */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-[#f7f9f6] rounded-2xl border border-[#e2eae4]">
+                        <div>
+                          <label className="block text-xs font-semibold text-[#19231b] mb-1">Bán Kính Geofence (mét)</label>
+                          <input
+                            type="number"
+                            min="5"
+                            max="50"
+                            value={formData.geofence_radius}
+                            onChange={(e) => setFormData({ ...formData, geofence_radius: parseInt(e.target.value) || 20 })}
+                            className="w-full px-3 py-2 rounded-xl bg-white border border-[#e2eae4] text-xs font-mono font-bold text-[#19231b]"
+                            required
+                          />
+                          <p className="text-[10px] text-[#7a8e80] mt-1">
+                            Vùng kích hoạt thuyết minh tự động khi du khách đến gần.
+                          </p>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-[#19231b] mb-1 flex items-center justify-between">
+                            <span>Độ Ưu Tiên (Priority)</span>
+                            <span className="text-[10px] font-mono text-[#2d5a37] font-bold">Mặc định: 0</span>
+                          </label>
+                          <input
+                            type="number"
+                            min="0"
+                            max="100"
+                            value={formData.priority ?? 0}
+                            onChange={(e) => setFormData({ ...formData, priority: parseInt(e.target.value) || 0 })}
+                            className="w-full px-3 py-2 rounded-xl bg-white border border-[#e2eae4] text-xs font-mono font-bold text-[#2d5a37]"
+                          />
+                          <p className="text-[10px] text-[#7a8e80] mt-1">
+                            Ưu tiên phát khi nằm trong vùng giao nhau của 2 geofence (số càng lớn càng ưu tiên).
+                          </p>
+                        </div>
+                      </div>
                     </div>
 
                     <div className="pt-3 flex items-center justify-end gap-2 border-t border-[#e2eae4]">
