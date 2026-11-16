@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import apiRouter from './src/server/routes/api.js';
 import { mongoManager } from './src/server/repositories/mongoClient.js';
@@ -10,6 +11,20 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 async function startServer() {
+  // Ensure public/audio and public/uploads directories exist with write permissions
+  try {
+    const audioDir = path.resolve(__dirname, 'public/audio');
+    const uploadsDir = path.resolve(__dirname, 'public/uploads');
+    if (!fs.existsSync(audioDir)) fs.mkdirSync(audioDir, { recursive: true, mode: 0o777 });
+    if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true, mode: 0o777 });
+    try {
+      fs.chmodSync(audioDir, 0o777);
+      fs.chmodSync(uploadsDir, 0o777);
+    } catch {}
+  } catch (e) {
+    console.warn('[Server Startup] Notice ensuring public directories:', e);
+  }
+
   // Initialize MongoDB connection & synchronization if MONGODB_URI is provided
   try {
     await mongoManager.initClient();

@@ -12,8 +12,15 @@ export class FileStorageService {
   }
 
   private ensureUploadsDirectory() {
-    if (!fs.existsSync(UPLOADS_DIR)) {
-      fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+    try {
+      if (!fs.existsSync(UPLOADS_DIR)) {
+        fs.mkdirSync(UPLOADS_DIR, { recursive: true, mode: 0o777 });
+      }
+      try {
+        fs.chmodSync(UPLOADS_DIR, 0o777);
+      } catch {}
+    } catch (e) {
+      console.warn('[FileStorage] Notice ensuring uploads directory:', e);
     }
   }
 

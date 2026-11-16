@@ -103,8 +103,11 @@ export class TTSService {
   private ensureAudioDirectory() {
     try {
       if (!fs.existsSync(AUDIO_DIR)) {
-        fs.mkdirSync(AUDIO_DIR, { recursive: true });
+        fs.mkdirSync(AUDIO_DIR, { recursive: true, mode: 0o777 });
       }
+      try {
+        fs.chmodSync(AUDIO_DIR, 0o777);
+      } catch {}
     } catch (e) {
       console.warn('[TTSService] Failed to create audio directory:', e);
     }
@@ -168,23 +171,40 @@ export class TTSService {
 
       const audioBuffers = results.map((r) => Buffer.from(r.base64, 'base64'));
       const fullAudioBuffer = Buffer.concat(audioBuffers);
+      const dataUrl = `data:audio/mp3;base64,${fullAudioBuffer.toString('base64')}`;
 
-      // Save to disk cache
-      fs.writeFileSync(filePath, fullAudioBuffer);
+      // Save to disk cache with permission handling
+      let savedToDisk = false;
+      try {
+        if (fs.existsSync(filePath)) {
+          try {
+            fs.chmodSync(filePath, 0o666);
+          } catch {}
+          try {
+            fs.unlinkSync(filePath);
+          } catch {}
+        }
+        fs.writeFileSync(filePath, fullAudioBuffer);
+        savedToDisk = true;
+      } catch (writeErr: any) {
+        console.warn(`[TTSService] Disk cache notice (${writeErr.message}). Audio provided via Data URL.`);
+      }
+
+      const finalAudioUrl = savedToDisk ? audioUrl : dataUrl;
 
       // If linked to POI in database, update POI record
       if (poiId) {
         const trans = db.getTranslation(poiId, normalizedLang);
         if (trans) {
-          trans.audio_url = audioUrl;
+          trans.audio_url = finalAudioUrl;
           db.saveTranslation(trans);
         }
       }
 
       return {
         success: true,
-        audioUrl,
-        dataUrl: `data:audio/mp3;base64,${fullAudioBuffer.toString('base64')}`,
+        audioUrl: finalAudioUrl,
+        dataUrl,
         isCached: false,
         bytes: fullAudioBuffer.length,
       };
