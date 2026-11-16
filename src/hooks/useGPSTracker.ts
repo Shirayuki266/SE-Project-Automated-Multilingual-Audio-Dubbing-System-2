@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { RichPOI } from '../server/types.js';
 import { MobileGPSKalmanFilter, RawGPSPoint } from '../server/services/gpsFilterService.js';
-import { calculateHaversineDistance } from '../utils/geo.js';
+import { calculateHaversineDistance, selectBestCandidatePOI } from '../utils/geo.js';
 
 export interface UserLocationState {
   lat: number;
@@ -17,7 +17,9 @@ export interface UserLocationState {
 
 export function useGPSTracker(
   pois: RichPOI[],
-  onGeofenceEnter?: (poi: RichPOI, distance: number) => void
+  onGeofenceEnter?: (poi: RichPOI, distance: number) => void,
+  activePoiId?: string | null,
+  isAudioPlaying?: boolean
 ) {
   // Default centered at Cổng Tam Quan, Việt Nam Quốc Tự
   const [userLocation, setUserLocation] = useState<UserLocationState>({
@@ -33,33 +35,36 @@ export function useGPSTracker(
   });
 
   const kalmanRef = useRef<MobileGPSKalmanFilter>(new MobileGPSKalmanFilter());
-  const activeGeofencesRef = useRef<Set<string>>(new Set());
+  const currentBestPoiIdRef = useRef<string | null>(null);
   const onGeofenceEnterRef = useRef(onGeofenceEnter);
   onGeofenceEnterRef.current = onGeofenceEnter;
+  const isAudioPlayingRef = useRef(isAudioPlaying);
+  isAudioPlayingRef.current = isAudioPlaying;
+  const activePoiIdRef = useRef(activePoiId);
+  activePoiIdRef.current = activePoiId;
 
-  // Check geofence entry and trigger auto-narration
+  // Check geofence entry and trigger auto-narration using hierarchical resolution:
+  // priority -> d/radius -> distance -> display_order, with locking and hysteresis
   const evaluateGeofences = useCallback(
     (currentLat: number, currentLng: number) => {
-      pois.forEach((poi) => {
-        const distance = calculateHaversineDistance(
-          currentLat,
-          currentLng,
-          poi.latitude,
-          poi.longitude
-        );
-        const radius = poi.geofence_radius || 20;
-
-        if (distance <= radius) {
-          if (!activeGeofencesRef.current.has(poi.poi_id)) {
-            activeGeofencesRef.current.add(poi.poi_id);
-            if (onGeofenceEnterRef.current) {
-              onGeofenceEnterRef.current(poi, Math.round(distance));
-            }
-          }
-        } else if (distance > radius + 8) {
-          activeGeofencesRef.current.delete(poi.poi_id);
-        }
+      const best = selectBestCandidatePOI(pois, currentLat, currentLng, {
+        currentPoiId: activePoiIdRef.current || currentBestPoiIdRef.current,
+        isPlaying: Boolean(isAudioPlayingRef.current),
+        hysteresisBufferMeters: 8,
+        switchRatioMargin: 0.15,
       });
+
+      if (best) {
+        if (currentBestPoiIdRef.current !== best.poi.poi_id) {
+          currentBestPoiIdRef.current = best.poi.poi_id;
+          if (onGeofenceEnterRef.current) {
+            onGeofenceEnterRef.current(best.poi, Math.round(best.distance));
+          }
+        }
+      } else {
+        // Exited all geofences
+        currentBestPoiIdRef.current = null;
+      }
     },
     [pois]
   );

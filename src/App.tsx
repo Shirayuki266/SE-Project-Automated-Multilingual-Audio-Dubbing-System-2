@@ -363,19 +363,25 @@ export default function App() {
   const handleGeofenceEnter = useCallback(
     (poi: RichPOI, distance: number) => {
       setGeofenceToast({ poi, distance });
-      setTimeout(() => setGeofenceToast(null), 5000);
+      setTimeout(() => setGeofenceToast(null), 6000);
 
       // Only auto-trigger narration if user explicitly enabled it
-      if (autoNarrationEnabled && lastAutoSpokenPoiId.current !== poi.poi_id) {
+      // Single-playback locking: Do not interrupt currently playing audio unless competitor has strictly higher priority
+      const isCurrentlyPlaying = isAudioPlaying || speechEngine.getIsSpeaking();
+      const canPlay =
+        autoNarrationEnabled &&
+        (!isCurrentlyPlaying || (activePOI && (poi.priority ?? 0) > (activePOI.priority ?? 0)));
+
+      if (canPlay && lastAutoSpokenPoiId.current !== poi.poi_id) {
         lastAutoSpokenPoiId.current = poi.poi_id;
         handlePlayPOI(poi, currentLang);
       }
     },
-    [autoNarrationEnabled, currentLang, handlePlayPOI]
+    [autoNarrationEnabled, currentLang, handlePlayPOI, isAudioPlaying, activePOI]
   );
 
-  // Real GPS Tracker without walking simulation
-  const { userLocation } = useGPSTracker(pois, handleGeofenceEnter);
+  // Real GPS Tracker with Hierarchical POI Selection & Locking (priority -> d/radius -> distance -> display_order)
+  const { userLocation } = useGPSTracker(pois, handleGeofenceEnter, activePOI?.poi_id, isAudioPlaying);
 
   const handleNextPOI = () => {
     if (!activePOI || pois.length === 0) return;

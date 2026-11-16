@@ -24,6 +24,7 @@ export interface POIEntity {
   longitude: number;
   geofence_radius: number; // in meters
   display_order?: number;
+  priority?: number; // Độ ưu tiên phát tự động (mặc định 0, số càng lớn càng ưu tiên)
   image?: string;
   qr_code_url?: string;
   created_at: string;

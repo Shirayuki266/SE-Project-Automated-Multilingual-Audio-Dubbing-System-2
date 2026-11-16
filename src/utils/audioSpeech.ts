@@ -495,6 +495,10 @@ export class AudioSpeechEngine {
     return this.currentPoiId;
   }
 
+  public getIsSpeaking(): boolean {
+    return this.isSpeaking;
+  }
+
   public getAvailableSystemVoices(): SpeechSynthesisVoice[] {
     if (!this.synth) return [];
     return this.synth.getVoices();
