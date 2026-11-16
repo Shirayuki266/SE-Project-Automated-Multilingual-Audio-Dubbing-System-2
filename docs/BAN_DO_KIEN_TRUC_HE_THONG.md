@@ -1,324 +1,328 @@
 # BẢN ĐỒ KIẾN TRÚC VÀ BỘ MÃ NGUỒN TOÀN HỆ THỐNG
 ## HỆ THỐNG THUYẾT MINH TỰ ĐỘNG ĐA NGÔN NGỮ VIỆT NAM QUỐC TỰ
 
-Tài liệu này đóng vai trò như **Kim Chỉ Nam / Bản Đồ Kỹ Thuật (Architecture & Code Blueprint)** cho toàn bộ dự án. Giúp lập trình viên và người quản trị nắm rõ sự liên kết logic, đường đi của dữ liệu, nhiệm vụ của từng tầng và nội dung mã nguồn của từng file cụ thể trong dự án.
+Tài liệu này đóng vai trò như **Kim Chỉ Nam / Bản Đồ Kỹ Thuật (Architecture & Code Blueprint)** cho toàn bộ dự án. Giúp lập trình viên, giảng viên và người quản trị nắm rõ cấu trúc **Kiến trúc 3 lớp (3-Tier Architecture)**, sự liên kết logic, đường đi của dữ liệu, nhiệm vụ của từng tầng và nội dung mã nguồn của từng file cụ thể trong dự án.
 
 ---
 
-## PHẦN 1: BẢN ĐỒ LIÊN KẾT LOGIC TOÀN HỆ THỐNG
+## PHẦN 1: BẢN ĐỒ LIÊN KẾT LOGIC TOÀN HỆ THỐNG (KIẾN TRÚC 3 LỚP)
 
-### 1.1 Sơ Đồ Khối Tương Tác Giữa Các Bộ Phận
+Hệ thống được thiết kế chuẩn mực theo mô hình **Kiến trúc 3 lớp (3-Tier Architecture)** trong Công nghệ phần mềm:
+1. **Tầng 1: Tầng Trình Diễn (Presentation Tier - Frontend Client)**: Chạy trên trình duyệt của người dùng (Mobile & Desktop).
+2. **Tầng 2: Tầng Ứng Dụng & Nghiệp Vụ (Application & Business Logic Tier - Backend Server)**: Máy chủ Express Node.js điều phối API, xử lý nghiệp vụ, tích hợp AI Dịch thuật (Gemini) và AI Giọng nói (Google TTS).
+3. **Tầng 3: Tầng Dữ Liệu (Data Tier - Database & Storage)**: Cơ sở dữ liệu MongoDB Atlas lưu trữ cấu trúc di tích và thư viện file âm thanh tĩnh MP3.
+
+### 1.1 Sơ Đồ Khối Tương Tác 3 Lớp
 
 ```
-┌──────────────────────────────────────────────────────────────────────────────────┐
-│                             TẦNG GIAO DIỆN (FRONTEND SPA)                         │
-│                                                                                  │
-│   [index.html] ──► [src/main.tsx] ──► [src/App.tsx (Bộ điều phối trung tâm)]      │
-│                                              │                                   │
-│        ┌───────────────────┬─────────────────┼──────────────────┬──────────────┐ │
-│        ▼                   ▼                 ▼                  ▼              ▼ │
-│  [Header.tsx]      [RealCampusMap]   [AudioPlayerBar]   [POIDetailDrawer]  [Admin]│
-│  (Ngôn ngữ, QR)    (Bản đồ Leaflet)  (Phát âm thanh)    (Nội dung chi tiết) Portal│
-│        │                   ▲                 │                                 │ │
-│        └─────────┬─────────┴─────────────────┼─────────────────────────────────┘ │
-│                  ▼                           ▼                                   │
-│        [hooks/useGPSTracker]     [utils/audioSpeech.ts]                          │
-│        (Theo dõi GPS & Kalman)   (Xử lý âm thanh & TTS)                          │
-└──────────────────┬───────────────────────────┬───────────────────────────────────┘
-                   │ HTTP Fetch                │ HTTP Fetch (Dịch thuật AI, Stats)
-                   ▼                           ▼
-┌──────────────────────────────────────────────────────────────────────────────────┐
-│                          TẦNG MÁY CHỦ HTTP (BACKEND API)                          │
-│                                                                                  │
-│   [server.ts] (Express Server Port 3000 + Tích hợp Vite Middlewares)              │
-│       │                                                                          │
-│       ▼ Gắn router `/api`                                                        │
-│   [src/server/routes/api.ts] (Bộ định tuyến trung tâm)                           │
-│       │                                                                          │
-│       ├──► [controllers/poiController.ts]                                        │
-│       ├──► [controllers/realDeviceController.ts]                                 │
-│       ├──► [controllers/analyticsController.ts]                                  │
-│       └──► [controllers/authController.ts]                                       │
-└──────────────────────────────────────┬───────────────────────────────────────────┘
-                                       │ Gọi thực thi nghiệp vụ
+┌────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                              TẦNG 1: TẦNG TRÌNH DIỄN (PRESENTATION TIER - CLIENT)                      │
+│                                                                                                        │
+│   [index.html] ──► [src/main.tsx] ──► [src/App.tsx (Khách tham quan)] & [src/AdminApp.tsx (Quản trị)] │
+│                                              │                                                         │
+│   ┌───────────────────┬──────────────────────┼────────────────────┬─────────────────┬────────────────┐ │
+│   ▼                   ▼                      ▼                    ▼                 ▼                ▼ │
+│ [Header.tsx]   [MapLibre3DCampusMap]  [AudioPlayerBar]    [POIDetailDrawer]  [POIArticlePopup] [AdminPortal│
+│ (12 Ngôn ngữ,  (Bản đồ 3D Vector &    (Thanh phát âm      (Nội dung chi tiết (Hiệu đính bản &  & [MapPicker]│
+│  Quét mã QR)    Chế độ Ngày/Đêm 4D)    thanh đa nguồn)     bài thuyết minh)   dịch đa ngữ)     (Quản trị) │
+│   │                   │                      │                    │                                  │ │
+│   └─────────┬─────────┴──────────────────────┼────────────────────┴──────────────────────────────────┘ │
+│             ▼                                ▼                                                         │
+│   [hooks/useGPSTracker.ts]        [utils/audioSpeech.ts]           [config/languages.ts]               │
+│   (GPS Geolocation & Giả lập)     (Speech Engine & Web Audio)      (13 Ngôn ngữ chuẩn hóa)             │
+└───────────────────────┬──────────────────────────────────┬─────────────────────────────────────────────┘
+                        │ HTTP REST API                    │ Tải âm thanh MP3 / Upload ảnh
+                        ▼                                  ▼
+┌────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                         TẦNG 2: TẦNG ỨNG DỤNG & NGHIỆP VỤ (APPLICATION TIER - SERVER)                  │
+│                                                                                                        │
+│   [server.ts] (Express Server Port 3000 + Tích hợp Vite HMR & Static Worker Routing)                   │
+│       │                                                                                                │
+│       ▼ Gắn router `/api`                                                                              │
+│   [src/server/routes/api.ts] (Bộ định tuyến trung tâm, Middleware Rate Limit, Upload Multer, JWT Auth) │
+│       │                                                                                                │
+│   ┌───┴───────────────────────────────────────┐                                                        │
+│   ▼ (Lớp Controller)                          ▼ (Lớp Controller)                                       │
+│   [controllers/poiController.ts]              [controllers/authController.ts]                          │
+│   (Điều phối CRUD POI, Media, Dịch thuật AI)  (Điều phối Đăng nhập, Xác thực JWT Admin)                │
+│       │                                           │                                                    │
+│       └───────────────────────┬───────────────────┘                                                    │
+│                               ▼ Gọi thực thi nghiệp vụ (Lớp Service)                                   │
+│   ┌────────────────────────────────────────────────────────────────────────────────────────────────┐   │
+│   │ [services/poiService.ts]          ── Quản lý nghiệp vụ điểm chiêm bái & tính Geofence          │   │
+│   │ [services/aiTranslationService.ts]── [AI 1] Gọi Google GenAI SDK (Gemini AI Dịch thuật tôn kính)│   │
+│   │ [services/ttsService.ts]          ── [AI 2] Tổng hợp giọng đọc MP3 Google TTS Engine & Cache   │   │
+│   │ [services/localizationService.ts] ── Tự động hóa 1-Click dịch 12 thứ tiếng & Tạo file MP3      │   │
+│   │ [services/dailyVisitService.ts]   ── Giám sát thiết bị thật qua mã băm SHA-256 HMAC bí mật     │   │
+│   │ [services/gpsFilterService.ts]    ── Thuật toán Bộ lọc Kalman 2D làm mượt GPS                  │   │
+│   │ [services/fileStorageService.ts]  ── Quản lý lưu trữ và dọn dẹp tệp ảnh upload an toàn         │   │
+│   │ [services/authService.ts]         ── Xác thực mật khẩu băm HMAC-SHA256 & Cấp phát JWT Session  │   │
+│   └────────────────────────────────────────────────────────────────────────────────────────────────┘   │
+└──────────────────────────────────────┬─────────────────────────────────────────────────────────────────┘
+                                       │ Gọi truy xuất dữ liệu (Lớp Repository)
                                        ▼
-┌──────────────────────────────────────────────────────────────────────────────────┐
-│                            TẦNG DỊCH VỤ (SERVICE LAYER)                           │
-│                                                                                  │
-│   ├── [services/poiService.ts]          ── Quản lý nghiệp vụ điểm chiêm bái      │
-│   ├── [services/aiTranslationService.ts]── Gọi Google GenAI (Gemini 3.8 Flash)   │
-│   ├── [services/gpsFilterService.ts]    ── Thuật toán Kalman Filter 2D           │
-│   ├── [services/analyticsService.ts]    ── Phân tích lưu lượng & Deduplication   │
-│   └── [services/authService.ts]         ── Xác thực mật khẩu & Token JWT         │
-└──────────────────────────────────────┬───────────────────────────────────────────┘
-                                       │ Gọi truy xuất dữ liệu
-                                       ▼
-┌──────────────────────────────────────────────────────────────────────────────────┐
-│                        TẦNG TRUY XUẤT DỮ LIỆU (DATA LAYER)                       │
-│                                                                                  │
-│   [repositories/poiRepository.ts] & [analyticsRepository.ts]                     │
-│       │                                                                          │
-│       ▼                                                                          │
-│   [repositories/db.ts] (Bộ máy CSDL nhúng MongoDatabaseEngine)                   │
-│       ├── Dữ liệu Seed: [repositories/seedPOIs.ts] (8 POI khởi tạo)              │
-│       └── Kết nối từ xa: [repositories/mongoClient.ts] ──► [ MongoDB Atlas Cloud]│
-└──────────────────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                                 TẦNG 3: TẦNG DỮ LIỆU & LƯU TRỮ (DATA TIER - STORAGE)                   │
+│                                                                                                        │
+│   [repositories/poiRepository.ts] (Lớp trừu tượng truy vấn CSDL POI)                                   │
+│       │                                                                                                │
+│       ▼                                                                                                │
+│   [repositories/db.ts] (Bộ máy CSDL nhúng MongoDatabaseEngine hỗ trợ lưu trữ kép In-Memory & MongoDB)  │
+│       ├── Bộ sưu tập: `campuses`, `pois`, `poi_translations`, `poi_media`, `daily_visits`, `admin_users`│
+│       ├── Dữ liệu Seed: [repositories/seedPOIs.ts] (8 POI khởi tạo chuẩn hóa tọa độ)                   │
+│       └── Đồng bộ đám mây: [repositories/mongoClient.ts] ──► [ Cụm MongoDB Atlas Cloud (2dsphere) ]    │
+│                                                                                                        │
+│   Kho tệp tĩnh máy chủ (Local Disk Storage):                                                           │
+│       ├── `public/audio/` (Bộ nhớ đệm các tệp âm thanh thuyết minh MP3 do Google TTS tạo ra)           │
+│       └── `public/uploads/` (Bộ nhớ lưu trữ hình ảnh các điểm POI do Quản trị viên tải lên)            │
+└────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
 ### 1.2 Luồng Dữ Liệu Hoạt Động Cốt Lõi (Lifecycle Flows)
 
-#### Luồng 1: Người dùng bước vào khuôn viên chùa và kích hoạt Thuyết minh tự động
-1. `useGPSTracker.ts` nhận sự kiện tọa độ từ GPS trình duyệt.
-2. Dữ liệu thô `{lat, lng, accuracy}` được đưa qua `MobileGPSKalmanFilter` trong `gpsFilterService.ts` để loại bỏ nhiễu và làm mượt.
-3. Tọa độ mượt được gửi về `App.tsx`. `App.tsx` gọi thuật toán Haversine (`src/utils/geo.ts`) đo khoảng cách tới 8 POI.
-4. Khi khoảng cách tới POI gần nhất $\le$ bán kính geofence (ví dụ: Cổng Tam Quan 20m), hệ thống kích hoạt chuông thông báo và hiển thị Toast.
-5. Nếu người dùng bật chế độ "Tự động phát", `audioSpeech.ts` (`speechEngine.speak`) được gọi với nội dung thuyết minh tương ứng.
-6. `audioSpeech.ts` chia nhỏ văn bản thành các đoạn $\le 88$ ký tự, chọn giọng đọc tối ưu (ưu tiên giọng Apple trên iPhone hoặc Google trên Android) và phát qua loa.
+#### Luồng 1: Người dùng bước vào khuôn viên chùa và kích hoạt Thuyết minh tự động (Geofencing GPS)
+1. `useGPSTracker.ts` thu nhận tọa độ GPS từ trình duyệt (`navigator.geolocation.watchPosition`).
+2. Dữ liệu tọa độ thô `{lat, lng, accuracy}` được đưa qua thuật toán **Lọc Kalman 2D** (`gpsFilterService.ts`) để loại bỏ hiện tượng nhảy cóc tọa độ (Outlier Gating Rejection: từ chối các bước nhảy vận tốc đi bộ $> 7$ m/s với sai số accuracy $> 20$m).
+3. Tọa độ mượt được gửi về `App.tsx`. Hệ thống áp dụng công thức Haversine (`src/utils/geo.ts`) tính khoảng cách thực tế giữa người dùng và 8 điểm chiêm bái (POI).
+4. Khi khoảng cách $\le$ bán kính Geofence của điểm (khoảng $20$m), hệ thống kích hoạt chuông báo và hiển thị thẻ thông báo nổi.
+5. Nếu bật chế độ "Tự động phát", `AudioPlayerBar` được kích hoạt: hệ thống kiểm tra file âm thanh MP3 lưu đệm tại `/audio/poi-{code}-{lang}.mp3` (do `ttsService` sinh ra). Nếu có, phát trực tiếp MP3 chất lượng cao; nếu chưa có, kích hoạt Web Speech API (`audioSpeech.ts`) với bộ lọc giọng đọc tối ưu (giọng Apple trên iOS, Google trên Android) để phát thuyết minh tức thì.
 
-#### Luồng 2: Khách yêu cầu thuyết minh bằng ngôn ngữ mới (Dịch thuật AI on-demand)
-1. Trên giao diện `POIDetailDrawer.tsx`, khách chọn ngôn ngữ (ví dụ: tiếng Đức `de` hoặc tiếng Nhật `ja`).
-2. Client gửi request `GET /api/pois/:id?lang=de` đến `poiController.ts`.
-3. `poiController.ts` chuyển tiếp sang `poiService.ts` $\rightarrow$ `aiTranslationService.ts`.
-4. `aiTranslationService.ts` kiểm tra nếu CSDL đã có bản dịch thì trả về ngay. Nếu chưa có, nó khởi tạo `@google/genai` gọi model `gemini-3.8-flash` với prompt chuyên sâu Phật học.
-5. Gemini trả về JSON gồm Tiêu đề, Giới thiệu và Bài thuyết minh đã dịch.
-6. Bản dịch mới được tự động lưu vào CSDL (`db.saveTranslation`) để tái sử dụng cho các khách tiếp theo mà không cần gọi lại AI.
+#### Luồng 2: Khách yêu cầu thuyết minh bằng ngôn ngữ mới & Cơ chế 1-Click AI Localization
+1. Khách chọn ngôn ngữ trên giao diện (ví dụ: tiếng Nhật `ja` hoặc tiếng Pháp `fr`).
+2. Client gửi yêu cầu `GET /api/pois/:id?lang=ja` đến `poiController.ts`.
+3. `poiController.ts` kiểm tra trong CSDL (`db.ts` / MongoDB Atlas). Nếu bản dịch đã có sẵn, trả về ngay lập tức với độ trễ 0s.
+4. Nếu chưa có, hệ thống kích hoạt `aiTranslationService.ts`, gọi mô hình **Gemini AI** (`@google/genai`) với System Prompt chuyên sâu về Phật học để biên soạn bản dịch chuẩn xác.
+5. Tại trang Quản trị, Admin có thể nhấn **"Dịch & Tạo Voice Tự Động (1-Click)"**: `localizationService.ts` sẽ dịch toàn bộ sang 12 thứ tiếng và đồng thời gọi `ttsService.ts` tạo sẵn toàn bộ các file `.mp3` lưu vào đĩa cứng máy chủ.
 
-#### Luồng 3: Giám sát Thiết Bị Thật (Chống dữ liệu ảo)
-1. Khi `App.tsx` khởi tạo, nó gọi hàm `getBrowserFingerprint()` trong `fingerprint.ts` để tạo chuỗi băm phần cứng SHA-256 từ Canvas, Screen, Múi giờ, CPU.
-2. Trình duyệt gửi thông số lên `POST /api/real-devices/access`.
-3. `realDeviceController.ts` nhận diện User-Agent để phân loại dòng máy thực (iPhone 16, MacBook, Android, Windows) và lưu vào bảng `real_devices` trong `db.ts` (hoặc đồng bộ lên MongoDB Atlas).
-4. Không tạo dữ liệu ảo; số đếm lượt truy cập trong ngày được cộng dồn theo thiết bị thực tế.
+#### Luồng 3: Giám sát Thiết Bị Thật & Thống kê lưu lượng truy cập (Bảo vệ quyền riêng tư)
+1. Khi khách mở ứng dụng, `fingerprint.ts` thu thập các thông số kỹ thuật ẩn danh: Canvas render, độ phân giải màn hình, múi giờ, ngôn ngữ trình duyệt.
+2. Thiết bị gửi yêu cầu `POST /api/visit/checkin`.
+3. `dailyVisitService.ts` kết hợp IP và thông số thiết bị với khóa bí mật xoay vòng theo ngày (`VISITOR_HASH_SALT`), băm qua giải thuật `SHA-256 HMAC` để tạo chuỗi `visitorHash` duy nhất.
+4. Ghi nhận lượt viếng thăm vào bộ sưu tập `daily_visits`. Cơ chế chống dữ liệu ảo đảm bảo **1 thiết bị thật = tối đa 1 lượt tính trong 24 giờ**, hoàn toàn không lưu thông tin cá nhân.
+5. Quản trị viên theo dõi biểu đồ thống kê lưu lượng khách thực tế theo ngày/tháng trên `AdminPortal.tsx`.
+
+#### Luồng 4: Tương tác Bản đồ số 3D WebGL & Chế độ Ngày/Đêm 4D
+1. Khi mở tab Bản đồ, `App.tsx` nạp `MapLibre3DCampusMap.tsx` với WebGL engine mã nguồn mở.
+2. Bản đồ tích hợp 3 lớp dữ liệu đồng thời:
+   - **Bản đồ nền (Basemap Tiles)**: Tải trực tiếp từ dịch vụ Esri ArcGIS (`World_Street_Map`, `World_Imagery` vệ tinh, hoặc `Canvas/World_Dark_Gray_Base`).
+   - **Mô hình kiến trúc 3D (3D Extrusion Buildings)**: Dựng các khối nhà từ dữ liệu GeoJSON nội bộ (Bảo Tháp 13 tầng cao 63m, Chính Điện cao 30m, Cổng Tam Quan 14m, Gác Chuông 18m).
+   - **Lớp POI & Geofence**: Hiển thị vị trí các điện thờ, bán kính vòng tròn kích hoạt và lộ trình hành hương chiêm bái.
+3. Bản đồ tự động phát hiện giờ địa phương của thiết bị: từ 18:00 đến 06:00 sáng tự động chuyển sang chế độ Ban đêm (Dark Canvas, ánh sáng khối nhà màu vàng kim huyền ảo).
+
+#### Luồng 5: Tạo và xuất mã QR dự phòng cho các điểm chiêm bái
+1. Trong `AdminPortal.tsx`, quản trị viên chọn một POI và nhấn nút "Xuất mã QR".
+2. Hệ thống sử dụng thư viện `qrcode` kết hợp mã định danh của POI tạo đường link tiêu chuẩn `https://domain/?poi={poi_code}`.
+3. Mã QR được vẽ lên Canvas kèm khung viền trang nghiêm, tên di tích tiếng Việt và logo chùa.
+4. Quản trị viên có thể tải về dưới dạng tệp ảnh PNG/JPG để in ấn và dán trực tiếp tại các biển bảng chỉ dẫn trước các điện thờ. Khi khách dùng camera quét mã, ứng dụng tự động mở đúng bài thuyết minh của điểm đó.
 
 ---
 
 ## PHẦN 2: BẢN ĐỒ CHI TIẾT TỪNG TẬP TIN TRONG BỘ MÃ NGUỒN
 
-Dưới đây là chi tiết toàn bộ các file trong dự án, nhiệm vụ và nội dung code của từng file:
+Dưới đây là thống kê và thuyết minh chi tiết toàn bộ các tập tin cấu thành hệ thống:
 
 ---
 
 ### I. CÁC TẬP TIN CẤU HÌNH VÀ KHỞI TẠO MÁY CHỦ (ROOT FILES)
 
-#### 1. `/server.ts` (67 dòng)
+#### 1. `/server.ts` (88 dòng)
 - **Nhiệm vụ chính**: Điểm vào (entry point) của toàn bộ ứng dụng Full-Stack phía máy chủ.
 - **Nội dung code**:
   - Khởi tạo Express app, nạp biến môi trường từ `.env` bằng `dotenv/config`.
+  - Khởi tạo kết nối MongoDB Atlas qua `mongoManager.initClient()` và đồng bộ dữ liệu ban đầu `db.syncWithMongoDB()`.
   - Cấu hình body parser JSON (giới hạn 10MB) và urlencoded.
   - Gắn router API vào đường dẫn `/api` (`app.use('/api', apiRouter)`).
-  - Phục vụ các file âm thanh MP3 tĩnh qua `/audio` (`public/audio`).
-  - **Middleware xử lý lỗi CSDL (Database Offline Fallback)**: Bắt các lỗi `MongoNetworkError`, `MongooseError`, trả về JSON rỗng hoặc mã lỗi 503 một cách an toàn mà không làm sập tiến trình máy chủ.
-  - Tích hợp Vite middleware ở chế độ phát triển (`createViteServer({ server: { middlewareMode: true } })`) hoặc phục vụ thư mục `dist/` khi ở production.
-  - Lắng nghe tại cổng `3000` trên host `0.0.0.0`.
-- **Phụ thuộc**: `express`, `vite`, `./src/server/routes/api.js`.
+  - Phục vụ tệp tĩnh: thư mục `public/`, thư mục âm thanh `/audio` (`public/audio`), và thư mục ảnh tải lên `/uploads` (`public/uploads`).
+  - Định tuyến chuyên biệt cho Web Worker của MapLibre GL (`/maplibre-gl-worker.mjs`) với đúng MIME type `application/javascript` để tránh lỗi đóng gói của Vite.
+  - **Middleware xử lý lỗi CSDL (Database Offline Fallback)**: Bắt các lỗi kết nối Mongo, tự động trả về dữ liệu an toàn mà không làm sập máy chủ.
+  - Tích hợp Vite middleware ở chế độ phát triển (`createViteServer`) hoặc phục vụ thư mục `dist/` khi chạy production.
 
 #### 2. `/package.json` (45 dòng)
-- **Nhiệm vụ**: Khai báo phụ thuộc (dependencies), phiên bản thư viện và các kịch bản chạy lệnh (scripts).
-- **Nội dung quan trọng**:
-  - Script `"dev": "tsx server.ts"`: Chạy server Full-Stack qua `tsx` với TypeScript trực tiếp.
-  - Script `"build": "vite build"`: Đóng gói giao diện React vào `dist/`.
-  - Script `"test": "tsx test/backend.test.ts"`: Chạy bộ kiểm thử backend.
-  - Dependencies chính: `@google/genai`, `express`, `leaflet`, `lucide-react`, `mongodb`, `motion`, `qrcode`, `react`, `react-dom`, `tsx`, `vite`.
+- **Nhiệm vụ**: Khai báo phụ thuộc (dependencies), phiên bản thư viện và các kịch bản thực thi (scripts).
+- **Dependencies chính**: `@google/genai`, `express`, `leaflet`, `maplibre-gl`, `lucide-react`, `mongodb`, `multer`, `google-tts-api`, `qrcode`, `react`, `react-dom`, `tsx`, `vite`, `tailwindcss`.
 
 #### 3. `/vite.config.ts` (26 dòng)
-- **Nhiệm vụ**: Cấu hình build tool Vite và plugin Tailwind CSS.
-- **Nội dung**: Tích hợp `@vitejs/plugin-react` và `@tailwindcss/vite`, tạo đường dẫn alias `@` trỏ về thư mục gốc, cấu hình port `3000` và kiểm soát HMR.
+- **Nhiệm vụ**: Cấu hình công cụ đóng gói Vite và Tailwind CSS v4. Tích hợp `@vitejs/plugin-react`, `@tailwindcss/vite`, thiết lập alias `@` trỏ về thư mục `src`.
 
 #### 4. `/tsconfig.json` (26 dòng)
-- **Nhiệm vụ**: Cấu hình trình biên dịch TypeScript Compiler (Target ES2022, module ESNext, moduleResolution Bundler, JSX react-jsx).
+- **Nhiệm vụ**: Cấu hình trình biên dịch TypeScript (Target ES2022, module ESNext, moduleResolution Bundler, JSX react-jsx).
 
 #### 5. `/index.html` (24 dòng)
-- **Nhiệm vụ**: Trang HTML đơn (Single Page HTML) gốc của ứng dụng.
-- **Nội dung**: Khai báo thẻ meta SEO, OpenGraph tiếng Việt cho Việt Nam Quốc Tự, nạp Google Fonts ('Be Vietnam Pro' và 'Playfair Display') và file CSS Leaflet.
+- **Nhiệm vụ**: Trang HTML Single Page Application gốc của ứng dụng. Khai báo SEO meta tags, Google Fonts ('Be Vietnam Pro', 'Playfair Display') và file CSS thư viện bản đồ.
 
-#### 6. `/.env.example` (4 dòng)
-- **Nhiệm vụ**: File mẫu khai báo các biến môi trường cần thiết: `AUTH_SECRET`, `MONGODB_DB_NAME`, `MONGODB_URI`, `GEMINI_API_KEY`.
+#### 6. `/.env.example` (15 dòng)
+- **Nhiệm vụ**: File mẫu khai báo các biến môi trường: `AUTH_SECRET`, `MONGODB_DB_NAME`, `MONGODB_URI`, `GEMINI_API_KEY`, `VISITOR_HASH_SALT`, `MAPTILER_API_KEY`, `VITE_VIETMAP_API_KEY`.
 
 ---
 
-### II. GIAO DIỆN NGƯỜI DÙNG (SRC - FRONTEND)
+### II. GIAO DIỆN NGƯỜI DÙNG CHÍNH (SRC ROOT)
 
-#### 7. `/src/main.tsx` (8 dòng)
-- **Nhiệm vụ**: Khởi động React DOM, gắn component `<App />` vào phần tử `<div id="root">`. Nạp `index.css` và `leaflet/dist/leaflet.css`.
+#### 7. `/src/main.tsx` (21 dòng)
+- **Nhiệm vụ**: Khởi động React DOM, gắn component `<App />` vào `<div id="root">`. Nạp CSS toàn cục `index.css` và CSS bản đồ `leaflet.css`.
 
-#### 8. `/src/index.css` (38 dòng)
-- **Nhiệm vụ**: Định dạng giao diện toàn cầu với `@import "tailwindcss";`.
-- **Nội dung**: Thiết lập font chữ chủ đạo `Be Vietnam Pro`, font tiêu đề `Playfair Display`, các lớp ẩn thanh cuộn `no-scrollbar`, và style tùy biến cho Marker bản đồ Leaflet.
+#### 8. `/src/index.css` (39 dòng)
+- **Nhiệm vụ**: Định dạng giao diện toàn cầu với Tailwind CSS, khai báo font chữ chủ đạo, tùy biến thanh cuộn `no-scrollbar`, và style cho Marker bản đồ.
 
-#### 9. `/src/App.tsx` (1,150 dòng)
-- **Nhiệm vụ**: Component mẹ (Master Orchestrator) quản lý toàn bộ trạng thái và hiển thị của ứng dụng phía Client.
+#### 9. `/src/App.tsx` (1,126 dòng)
+- **Nhiệm vụ**: Component điều phối trung tâm (Master Orchestrator) quản lý toàn bộ trạng thái của ứng dụng dành cho khách tham quan.
 - **Nội dung code**:
-  - Quản lý 3 Tab giao diện chính:
-    1. Tab **Khám Phá (`explore`)**: Danh sách 8 điểm chiêm bái với hình ảnh đẹp, trạng thái đã xem/chưa xem, bộ lọc danh mục và thanh tìm kiếm.
-    2. Tab **Hành Trình (`itinerary`)**: Lộ trình tham quan tối ưu theo thứ tự từ Cổng Tam Quan qua Chính Điện đến Nhà Hậu Tổ.
-    3. Tab **Bản Đồ (`map`)**: Bản đồ định vị tương tác thời gian thực và thẻ hành hương điện tử (Pilgrim Boarding Pass).
-  - Quản lý trạng thái Audio: đang phát, tạm dừng, thời gian chạy, thời lượng.
-  - Tích hợp hook GPS `useGPSTracker` và tính toán Geofence cảnh báo khi đến gần một điểm chiêm bái.
-  - Điều khiển các Modal: Welcome Modal, QR Scanner Modal, Voice Selector Modal, POI Detail Drawer, Admin Portal.
-  - Đồng bộ trạng thái URL (`?view=admin` hoặc `?poi=VNQT-TAM-QUAN`).
+  - Quản lý 3 màn hình chuyển đổi nhanh:
+    1. **Khám Phá (`explore`)**: Danh mục điểm chiêm bái, bộ lọc, thẻ hình ảnh, tìm kiếm.
+    2. **Hành Trình (`itinerary`)**: Lộ trình tham quan tối ưu theo thứ tự truyền thống.
+    3. **Bản Đồ (`map`)**: Bản đồ số tương tác thời gian thực và thẻ hành hương điện tử.
+  - Quản lý định vị GPS qua `useGPSTracker`, tính toán cảnh báo Geofence tự động.
+  - Quản lý trạng thái âm thanh đang phát, đồng bộ URL parameters (`?poi=...`, `?view=admin`).
+  - Điều khiển các cửa sổ Modal: quét QR, cấu hình giọng đọc, thông báo chào mừng.
+
+#### 10. `/src/AdminApp.tsx` (34 dòng)
+- **Nhiệm vụ**: Entry point độc lập cho trang quản trị, tải danh sách POI từ API `/api/pois` và bao bọc component `AdminPortal`.
 
 ---
 
 ### III. CÁC COMPONENT GIAO DIỆN (SRC/COMPONENTS)
 
-#### 10. `/src/components/Header.tsx` (160 dòng)
-- **Nhiệm vụ**: Thanh tiêu đề phía trên cùng của ứng dụng di động.
-- **Nội dung**: Logo Việt Nam Quốc Tự mạ vàng, nút chuyển đổi nhanh 12 ngôn ngữ (dropdown cờ quốc gia), nút mở trình quét QR, nút cài đặt giọng đọc, và nút ẩn để vào trang quản trị Admin.
+#### 11. `/src/components/MapLibre3DCampusMap.tsx` (943 dòng)
+- **Nhiệm vụ**: Bản đồ số 3D WebGL chính của hệ thống.
+- **Nội dung code**:
+  - Render bản đồ vector/raster dựa trên thư viện MapLibre GL JS, tích hợp Web Worker riêng.
+  - Hỗ trợ nguồn tile nền từ Esri ArcGIS (Street, Satellite, Dark Canvas) hoặc MapTiler.
+  - Mô hình hóa các khối nhà 3D (`VNQT_3D_BUILDINGS_GEOJSON`) với chiều cao thực tế: Bảo Tháp 13 Tầng (63m), Chính Điện (30m), Cổng Tam Quan (14m), Gác Chuông (18m).
+  - Tự động đồng bộ giao diện Ngày/Đêm (4D Day/Night) theo thời gian thực của thiết bị.
+  - Hiển thị la bàn số, vòng tròn bán kính Geofence động và tuyến đường hành hương.
 
-#### 11. `/src/components/RealCampusMap.tsx` (240 dòng)
-- **Nhiệm vụ**: Bản đồ tương tác khuôn viên chùa xây dựng trên thư viện Leaflet.
-- **Nội dung**:
-  - Tự động cố định vùng hiển thị (Max Bounds) trong phạm vi khuôn viên Việt Nam Quốc Tự (Quận 10).
-  - Vẽ ranh giới địa lý khuôn viên chùa (Polygon đường nét đứt màu xanh ngọc).
-  - Hiển thị 8 Marker điểm chiêm bái bằng Icon SVG chuyên biệt kèm bán kính Geofence.
-  - Hiển thị Marker vị trí thực tế của khách hành hương (chấm tròn xanh có sóng xung kích và hướng la bàn la bàn xoay theo góc đi).
-  - Popup xem nhanh thông tin POI và nút kích hoạt nghe thuyết minh trực tiếp từ bản đồ.
+#### 12. `/src/components/RealCampusMap.tsx` (587 dòng)
+- **Nhiệm vụ**: Bản đồ 2D tương tác xây dựng trên Leaflet làm giải pháp bản đồ truyền thống và dự phòng cho các thiết bị không hỗ trợ WebGL.
 
-#### 12. `/src/components/CampusMap.tsx` (180 dòng)
-- **Nhiệm vụ**: Component bản đồ sơ đồ đồ họa minh họa thay thế dạng SVG dành cho các thiết bị không hỗ trợ WebGL hoặc khi mất kết nối mạng.
+#### 13. `/src/components/CampusMap.tsx` (311 dòng)
+- **Nhiệm vụ**: Bản đồ sơ đồ đồ họa minh họa dạng vector SVG thuần túy, hoạt động hoàn hảo khi thiết bị hoàn toàn ngoại tuyến hoặc mất kết nối mạng.
 
-#### 13. `/src/components/AudioPlayerBar.tsx` (210 dòng)
-- **Nhiệm vụ**: Thanh trình phát âm thanh cố định ở đáy màn hình điện thoại (Sticky Audio Bar).
-- **Nội dung**:
-  - Hiển thị tiêu đề điểm đang phát thuyết minh và trạng thái giọng đọc.
-  - Nút Play/Pause, nút tua lùi 10s, tua tới 10s.
-  - Thanh trượt tiến trình (Seek bar slider) cho phép người dùng kéo thả thời gian phát.
-  - Nút bấm mở nhanh hộp thoại chọn giọng đọc (`VoiceSelectorModal`).
+#### 14. `/src/components/Header.tsx` (212 dòng)
+- **Nhiệm vụ**: Thanh tiêu đề phía trên cùng của ứng dụng di động: Logo chùa, bộ chọn 12 ngôn ngữ kèm cờ quốc gia, nút quét QR, nút cài đặt giọng đọc, và nút mở trang quản trị.
 
-#### 14. `/src/components/POIDetailDrawer.tsx` (320 dòng)
-- **Nhiệm vụ**: Bảng chi tiết điểm chiêm bái trượt từ dưới lên (Bottom Sheet Drawer).
-- **Nội dung**:
-  - Carousel hình ảnh sắc nét của di tích.
-  - Cấu trúc 4 phần chuẩn: Tiêu đề tôn kính, Đoạn giới thiệu tóm tắt (Lead), Bài thuyết minh lịch sử - kiến trúc - tâm linh chi tiết, và Trình phát âm thanh.
-  - Nút kích hoạt Dịch thuật AI tức thì nếu khách chọn xem ngôn ngữ mới.
-  - Thông số kỹ thuật của POI: Tọa độ GPS, bán kính kích hoạt tự động, loại công trình.
+#### 15. `/src/components/AudioPlayerBar.tsx` (437 dòng)
+- **Nhiệm vụ**: Thanh trình phát âm thanh cố định ở đáy màn hình (Sticky Audio Player): Nút Play/Pause, tua tiến/lùi 10s, thanh trượt thời gian phát, chọn giọng đọc, hiển thị tên bài thuyết minh đang phát.
 
-#### 15. `/src/components/VoiceSelectorModal.tsx` (220 dòng)
-- **Nhiệm vụ**: Hộp thoại cấu hình và cá nhân hóa giọng đọc thuyết minh.
-- **Nội dung**:
-  - Cho phép chọn giữa 5 phong cách giọng: Chị Google, AI Neural Cloud, Microsoft Hoài My, Giọng Truyền Cảm, Giọng Bản Địa.
-  - Thanh trượt điều chỉnh Tốc độ đọc (Speed Rate: 0.8x - 1.3x) và Độ cao giọng (Pitch).
-  - Nút "Nghe thử" (`testVoice`) đọc thử một câu kinh Phật để người dùng kiểm tra chất lượng giọng trước khi áp dụng.
+#### 16. `/src/components/POIDetailDrawer.tsx` (445 dòng)
+- **Nhiệm vụ**: Bảng chi tiết điểm chiêm bái dạng trượt từ dưới lên (Bottom Sheet Drawer): Carousel hình ảnh, tiêu đề tôn kính, đoạn giới thiệu, bài thuyết minh lịch sử - kiến trúc, và nút kích hoạt dịch AI.
 
-#### 16. `/src/components/QRScannerModal.tsx` (140 dòng)
-- **Nhiệm vụ**: Hộp thoại quét mã QR tại các bảng đồng gắn trước các điện thờ.
-- **Nội dung**: Khung quét mô phỏng camera điện thoại và ô nhập mã nhanh (như `VNQT-TAM-QUAN`, `VNQT-CHINH-DIEN`) để mở thẳng bài thuyết minh tương ứng.
+#### 17. `/src/components/POIArticlePopup.tsx` (509 dòng)
+- **Nhiệm vụ**: Cửa sổ pop-up toàn màn hình phục vụ việc đọc bài thuyết minh chuyên sâu, đồng thời cho phép quản trị viên xem trước và hiệu đính bản dịch đa ngôn ngữ trực tiếp.
 
-#### 17. `/src/components/WelcomeModal.tsx` (110 dòng)
-- **Nhiệm vụ**: Hộp thoại chào đón khách khi lần đầu truy cập hệ thống.
-- **Nội dung**: Giới thiệu chùa Việt Nam Quốc Tự, yêu cầu người dùng chọn ngôn ngữ mong muốn, cấp quyền truy cập vị trí GPS, và kích hoạt âm thanh (Unmute Audio) để vượt qua rào cản chặn Autoplay của trình duyệt.
+#### 18. `/src/components/VoiceSelectorModal.tsx` (320 dòng)
+- **Nhiệm vụ**: Hộp thoại tùy chỉnh giọng đọc: Chọn giữa các engine giọng đọc (Google, AI Neural, Hoài My, Apple Linh/Mai), thanh trượt tốc độ (Speed Rate: 0.8x - 1.3x), và nút đọc thử câu kinh Phật.
 
-#### 18. `/src/components/AdminPortal.tsx` (650 dòng)
-- **Nhiệm vụ**: Trung tâm điều hành quản trị dành cho Ban Trị Sự chùa.
-- **Nội dung**:
-  - Xác thực đăng nhập tài khoản quản trị (`admin` / `vnqt@2026`).
-  - **Quản lý POI (CMS)**: Xem danh sách, tìm kiếm, thêm mới POI, sửa tọa độ, upload URL hình ảnh, xóa điểm chiêm bái.
-  - **Quản lý Thiết Bị Thật (`real_devices`)**: Bảng thống kê chi tiết từng thiết bị thực tế đang truy cập (IP, hệ điều hành, trình duyệt, độ phân giải, số lần ghé thăm), chức năng Khóa/Mở khóa thiết bị, Xóa thiết bị khỏi MongoDB.
-  - **Biểu đồ Thống kê**: Biểu đồ phân tích lượng khách theo ngày, tháng, năm; tỷ lệ các ngôn ngữ được sử dụng nhiều nhất.
+#### 19. `/src/components/QRScannerModal.tsx` (296 dòng)
+- **Nhiệm vụ**: Hộp thoại quét mã QR bằng camera điện thoại hoặc tải ảnh QR từ máy để mở thẳng bài thuyết minh tương ứng.
 
-#### 19. `/src/components/AdminPOIMapPicker.tsx` (130 dòng)
-- **Nhiệm vụ**: Bản đồ vệ tinh thu nhỏ tích hợp bên trong Form chỉnh sửa POI của Admin, cho phép quản trị viên click chuột hoặc kéo thả Marker để lấy chính xác kinh độ - vĩ độ thực tế.
+#### 20. `/src/components/WelcomeModal.tsx` (157 dòng)
+- **Nhiệm vụ**: Màn hình chào mừng khi khách lần đầu truy cập: Giới thiệu chùa, chọn ngôn ngữ khởi tạo, xin cấp quyền định vị GPS và kích hoạt âm thanh vượt rào cản chặn Autoplay của trình duyệt.
+
+#### 21. `/src/components/AdminPortal.tsx` (1,289 dòng)
+- **Nhiệm vụ**: Trung tâm điều hành quản trị toàn diện:
+  - Đăng nhập xác thực tài khoản quản trị bằng JWT.
+  - Quản lý POI (CRUD): Thêm mới, chỉnh sửa tọa độ, upload ảnh, xóa điểm chiêm bái.
+  - Tạo và xuất mã QR (PNG/JPG) có khung nhãn trang nghiêm.
+  - Công cụ 1-Click AI Localization: Tự động dịch sang 12 thứ tiếng và tạo audio MP3 hàng loạt.
+  - Biểu đồ phân tích lưu lượng truy cập thiết bị thật theo ngày (`daily_visits`).
+  - Thiết lập cấu hình giọng đọc mặc định toàn hệ thống.
+
+#### 22. `/src/components/AdminPOIMapPicker.tsx` (268 dòng)
+- **Nhiệm vụ**: Bản đồ chọn tọa độ tích hợp trong form Admin: Cho phép quản trị viên click chuột trên bản đồ để lấy chính xác kinh độ - vĩ độ thực tế và xem trước bán kính Geofence.
 
 ---
 
-### IV. HOOKS VÀ TIỆN ÍCH (SRC/HOOKS & SRC/UTILS)
+### IV. CẤU HÌNH, HOOKS VÀ TIỆN ÍCH (SRC/CONFIG, SRC/HOOKS, SRC/UTILS)
 
-#### 20. `/src/hooks/useGPSTracker.ts` (190 dòng)
-- **Nhiệm vụ**: Hook tùy biến của React quản lý toàn bộ vòng đời định vị của thiết bị.
-- **Nội dung**:
-  - Gọi `navigator.geolocation.watchPosition` với các tùy chọn `enableHighAccuracy: true`, `timeout: 10000`, `maximumAge: 0`.
-  - Đưa dữ liệu qua `MobileGPSKalmanFilter` để tính toán tọa độ mịn.
-  - Cung cấp chế độ giả lập bước đi (Simulation Mode) giúp lập trình viên kiểm thử tính năng Geofence ngay trên máy tính bàn mà không cần phải ra thực địa tại chùa.
+#### 23. `/src/config/languages.ts` (27 dòng)
+- **Nhiệm vụ**: Định nghĩa danh mục chuẩn hóa 13 ngôn ngữ hỗ trợ: mã ISO, mã Google GenAI, mã TTS, tên bản địa và cờ biểu tượng.
 
-#### 21. `/src/utils/audioSpeech.ts` (1,007 dòng)
-- **Nhiệm vụ**: Trái tim của hệ thống âm thanh thuyết minh di động.
-- **Nội dung cốt lõi**:
-  - `splitTextIntoSentences(text, maxLen = 88)`: Cắt văn bản dài thành các mệnh đề ngắn dưới 88 ký tự theo dấu câu tự nhiên, triệt tiêu lỗi đánh vần chữ và lỗi 15s của iOS WebKit.
-  - `isApplePlatform()`: Kiểm tra chính xác xem khách có đang dùng iPhone, iPad hay Mac không.
-  - `AudioSpeechEngine.pickVoiceForEngine()`: Bộ lọc chọn giọng nói thông minh; trên thiết bị Apple tự động ưu tiên giọng `Linh`, `Mai` (Enhanced/Premium).
-  - Bộ bảo vệ chống méo tiếng Apple (Distortion Shield): Ép cứng `pitch = 1.0` và `rate` trong khoảng an toàn `[0.95 - 1.05]`.
-  - Hỗ trợ đầy đủ các hàm điều khiển: `playNarration`, `pause`, `resume`, `stop`, `seekTo`, `rewind`, `forward`.
+#### 24. `/src/hooks/useGPSTracker.ts` (130 dòng)
+- **Nhiệm vụ**: React hook quản lý vòng đời theo dõi vị trí GPS của thiết bị, tích hợp chế độ giả lập bước đi (Simulation Mode) để kiểm thử Geofence tại bàn làm việc.
 
-#### 22. `/src/utils/geo.ts` (85 dòng)
-- **Nhiệm vụ**: Thư viện tính toán không gian địa lý WGS84.
-- **Nội dung**:
-  - `calculateHaversineDistance(lat1, lon1, lat2, lon2)`: Tính khoảng cách chính xác theo mét giữa 2 điểm trên mặt cầu Trái Đất.
-  - `calculateBearing(lat1, lon1, lat2, lon2)`: Tính góc la bàn hướng di chuyển (0 - 360 độ).
+#### 25. `/src/utils/audioSpeech.ts` (1,446 dòng)
+- **Nhiệm vụ**: Trọng tâm của hệ thống phát âm thanh phía client:
+  - Tích hợp danh mục các engine giọng đọc (Gemini AI TTS, Google Cloud, Microsoft Edge, Apple Native).
+  - Hàm `splitTextIntoSentences(text, maxLen = 88)`: Chia nhỏ văn bản chống lỗi ngắt tiếng trên iOS WebKit.
+  - Kiểm soát âm lượng, tốc độ đọc, cao độ và cơ chế chống méo tiếng.
 
-#### 23. `/src/utils/fingerprint.ts` (60 dòng)
-- **Nhiệm vụ**: Tạo mã định danh phần cứng ẩn danh (Hardware Fingerprint) cho thiết bị duyệt web.
-- **Nội dung**: Thu thập thông số Canvas render, độ phân giải màn hình, timezone, ngôn ngữ hệ điều hành, băm thành chuỗi định danh SHA-256 (`fp_...`) để chống gian lận lượt view.
+#### 26. `/src/utils/geo.ts` (29 dòng)
+- **Nhiệm vụ**: Thư viện tính toán không gian địa lý: Công thức Haversine đo khoảng cách mặt cầu theo mét và hàm tính góc la bàn (bearing).
 
-#### 24. `/src/utils/audioSynth.ts` (62 dòng)
-- **Nhiệm vụ**: Trình tổng hợp sóng âm chuông chùa viết bằng TypeScript thuần.
-- **Nội dung**: Tạo Buffer nhị phân file WAV 16-bit PCM với 4 họa âm vật lý của chuông đồng (Fundamental 1.0, Strike Tone 2.76, High Shimmer 5.40, Metallic Overtone 8.90).
+#### 27. `/src/utils/fingerprint.ts` (80 dòng)
+- **Nhiệm vụ**: Thu thập thông số phần cứng thiết bị (Canvas, Screen, Múi giờ) và băm SHA-256 tạo mã định danh ẩn danh phục vụ thống kê lưu lượng khách thật.
 
-#### 25. `/src/utils/cryptoUtils.ts` (45 dòng)
-- **Nhiệm vụ**: Tiện ích băm mật khẩu quản trị viên và sinh token xác thực an toàn.
+#### 28. `/src/utils/audioSynth.ts` (61 dòng)
+- **Nhiệm vụ**: Bộ tổng hợp âm thanh sóng chuông chùa: Tạo mảng Buffer nhị phân WAV 16-bit PCM với 4 họa âm đặc trưng của chuông đồng cổ truyền.
 
-#### 26. `/src/translations/index.ts` (480 dòng)
-- **Nhiệm vụ**: Từ điển giao diện đa ngôn ngữ (UI Localization) cho 12 ngôn ngữ: Tiếng Việt, Anh, Trung, Nhật, Hàn, Pháp, Đức, Tây Ban Nha, Nga, Thái, Indonesia, Ý.
+#### 29. `/src/utils/cryptoUtils.ts` (118 dòng)
+- **Nhiệm vụ**: Tiện ích mã hóa: Băm mật khẩu quản trị viên với muối (Salt), tạo token phiên làm việc JWT và kiểm tra tính hợp lệ của chữ ký điện tử.
+
+#### 30. `/src/translations/index.ts` (1,282 dòng)
+- **Nhiệm vụ**: Từ điển tĩnh chứa toàn bộ chuỗi văn bản giao diện (UI Strings) được bản địa hóa cho 12 ngôn ngữ.
 
 ---
 
-### V. TẦNG MÁY CHỦ VÀ DỊCH VỤ (SRC/SERVER)
+### V. TẦNG MÁY CHỦ, ĐIỀU PHỐI VÀ DỊCH VỤ (SRC/SERVER)
 
-#### 27. `/src/server/types.ts` (210 dòng)
-- **Nhiệm vụ**: Định nghĩa cấu trúc kiểu dữ liệu toàn bộ hệ thống (`Campus`, `POIEntity`, `POITranslation`, `POIMedia`, `RichPOI`, `RealDeviceEntity`, `PilgrimageStats`,...).
+#### 31. `/src/server/types.ts` (94 dòng)
+- **Nhiệm vụ**: Định nghĩa các Interface TypeScript cốt lõi: `Campus`, `POIEntity`, `POITranslation`, `POIMedia`, `RichPOI`, `DailyVisitEntity`, `UserLocationState`.
 
-#### 28. `/src/server/routes/api.ts` (140 dòng)
-- **Nhiệm vụ**: Định tuyến toàn bộ các yêu cầu HTTP API phía máy chủ:
-  - `GET /api/pois`, `GET /api/pois/:id`, `GET /api/pois/nearby`, `POST/PUT/DELETE /api/pois`
-  - `POST /api/real-devices/access`, `POST /api/real-devices/login`, `GET /api/real-devices`
-  - `POST /api/auth/login`, `GET /api/auth/verify`
-  - `GET /api/analytics/stats`, `POST /api/analytics/checkin`
+#### 32. `/src/server/routes/api.ts` (384 dòng)
+- **Nhiệm vụ**: Router trung tâm khai báo toàn bộ các điểm cuối REST API:
+  - `/api/health`: Kiểm tra sức khỏe hệ thống, kết nối MongoDB Atlas và Gemini AI.
+  - `/api/visit/checkin`, `/api/visit/today-count`: Ghi nhận và thống kê lượt viếng thăm theo ngày.
+  - `/api/auth/login`, `/api/auth/me`: Đăng nhập và xác thực phiên làm việc Admin.
+  - `/api/pois`: Nhóm API CRUD thông tin điểm chiêm bái, truy vấn không gian lân cận (`/pois/spatial/nearby`).
+  - `/api/admin/upload-image`: Tải ảnh lên với Multer (giới hạn 5MB, lọc MIME type, tự xóa ảnh cũ).
+  - `/api/tts/synthesize`, `/api/tts/poi/:poiId/:lang`: Tổng hợp và lấy tệp âm thanh thuyết minh MP3.
+  - `/api/admin/localize-all`: Kích hoạt dịch thuật và tạo âm thanh 12 ngôn ngữ tự động.
 
-#### 29. `/src/server/controllers/poiController.ts` (120 dòng)
-- **Nhiệm vụ**: Tiếp nhận request HTTP về POI, gọi service xử lý và trả về JSON chuẩn. Tích hợp tự động kích hoạt dịch thuật AI nếu có yêu cầu ngôn ngữ lạ.
+#### 33. `/src/server/controllers/poiController.ts` (182 dòng)
+- **Nhiệm vụ**: Tiếp nhận yêu cầu HTTP về POI, gọi các service tương ứng và trả về phản hồi JSON chuẩn hóa.
 
-#### 30. `/src/server/controllers/realDeviceController.ts` (95 dòng)
-- **Nhiệm vụ**: Xử lý ghi nhận thiết bị thực, truy vấn danh sách thiết bị có phân trang và bộ lọc, khóa/mở khóa thiết bị trong MongoDB.
+#### 34. `/src/server/controllers/authController.ts` (64 dòng)
+- **Nhiệm vụ**: Tiếp nhận đăng nhập quản trị viên, kiểm tra mật khẩu băm và cấp phát token JWT.
 
-#### 31. `/src/server/controllers/analyticsController.ts` (80 dòng)
-- **Nhiệm vụ**: Xử lý check-in thiết bị theo ngày, tổng hợp số liệu thống kê khách hành hương.
+#### 35. `/src/server/services/poiService.ts` (195 dòng)
+- **Nhiệm vụ**: Xử lý nghiệp vụ POI: Kết hợp thông tin cơ bản với bản dịch theo ngôn ngữ, gán danh sách hình ảnh, và tính khoảng cách không gian tới vị trí du khách.
 
-#### 32. `/src/server/controllers/authController.ts` (60 dòng)
-- **Nhiệm vụ**: Xử lý đăng nhập tài khoản quản trị, kiểm tra mật khẩu băm và cấp token.
+#### 36. `/src/server/services/aiTranslationService.ts` (142 dòng)
+- **Nhiệm vụ**: [AI Dịch Thuật] Gọi Google GenAI SDK (`@google/genai`) với model `gemini-2.5-flash` để tự động dịch tiêu đề, đoạn giới thiệu và nội dung thuyết minh sang ngôn ngữ yêu cầu.
 
-#### 33. `/src/server/services/poiService.ts` (75 dòng)
-- **Nhiệm vụ**: Tầng nghiệp vụ POI, thực hiện kết hợp bản dịch, media và tính khoảng cách gần nhất.
+#### 37. `/src/server/services/ttsService.ts` (227 dòng)
+- **Nhiệm vụ**: [AI Giọng Nói] Dịch vụ tổng hợp âm thanh Google TTS Engine: Phân đoạn văn bản dài, gọi dịch vụ sinh âm thanh tiếng nói, lưu tệp MP3 vào đĩa cứng `public/audio` làm bộ nhớ đệm (Cache) tốc độ cao.
 
-#### 34. `/src/server/services/aiTranslationService.ts` (145 dòng)
-- **Nhiệm vụ**: Tích hợp SDK `@google/genai` gọi mô hình `gemini-3.8-flash` để dịch bài thuyết minh sang 12 thứ tiếng với phong cách tôn kính Phật giáo, xuất định dạng JSON.
+#### 38. `/src/server/services/localizationService.ts` (432 dòng)
+- **Nhiệm vụ**: Dịch vụ tự động hóa địa phương hóa hàng loạt: Nhận bài viết gốc tiếng Việt, dịch song song sang 12 ngôn ngữ qua Gemini AI và gọi `ttsService` sinh toàn bộ các file MP3 tương ứng.
 
-#### 35. `/src/server/services/gpsFilterService.ts` (148 dòng)
-- **Nhiệm vụ**: Cài đặt giải thuật **Bộ lọc Kalman 2D (MobileGPSKalmanFilter)**:
-  - Ước lượng ma trận sai số tọa độ.
-  - Cơ chế cổng loại bỏ điểm nhảy cóc (Outlier Gating Rejection: từ chối các bước nhảy vận tốc pedestrian $> 7$ m/s với sai số accuracy $> 20$m).
-  - Làm mịn góc xoay la bàn (`smoothAngle`).
+#### 39. `/src/server/services/dailyVisitService.ts` (86 dòng)
+- **Nhiệm vụ**: Dịch vụ quản lý lượt khách thật: Thực hiện băm HMAC-SHA256 với Salt bí mật theo ngày, ghi nhận vào bộ sưu tập `daily_visits` và đếm tổng số khách duy nhất trong ngày.
 
-#### 36. `/src/server/services/analyticsService.ts` (65 dòng)
-- **Nhiệm vụ**: Nghiệp vụ kiểm tra trùng lặp thiết bị trong ngày (chỉ tính 1 thiết bị duy nhất trong 24 giờ).
+#### 40. `/src/server/services/gpsFilterService.ts` (147 dòng)
+- **Nhiệm vụ**: Cài đặt giải thuật **Bộ lọc Kalman 2D (MobileGPSKalmanFilter)**: Dự đoán trạng thái, cập nhật ma trận hiệp phương sai sai số, loại bỏ nhiễu và làm mịn góc quay la bàn.
 
-#### 37. `/src/server/services/authService.ts` (55 dòng)
-- **Nhiệm vụ**: Nghiệp vụ kiểm tra thông tin đăng nhập admin và sinh chữ ký phiên làm việc.
+#### 41. `/src/server/services/fileStorageService.ts` (38 dòng)
+- **Nhiệm vụ**: Quản lý tệp tin tải lên: Xóa an toàn các tệp ảnh cũ trên đĩa cứng khi quản trị viên cập nhật hoặc xóa hình ảnh POI.
 
-#### 38. `/src/server/repositories/db.ts` (841 dòng)
-- **Nhiệm vụ**: Trọng tâm của tầng dữ liệu - Lớp `MongoDatabaseEngine`:
-  - Quản lý các bộ nhớ BSON nhúng (`campuses`, `pois`, `translations`, `media`, `realDevices`).
-  - Nạp dữ liệu khởi tạo từ `seedPOIs.ts`.
-  - Tự động đồng bộ 2 chiều với cụm MongoDB Atlas từ xa thông qua `mongoManager`.
-  - Đảm bảo hệ thống hoạt động 100% trơn tru ngay cả khi không có kết nối Internet đến MongoDB ngoài.
+#### 42. `/src/server/services/authService.ts` (64 dòng)
+- **Nhiệm vụ**: Nghiệp vụ xác thực quản trị: Kiểm tra mật khẩu băm HMAC-SHA256, sinh token JWT có thời hạn và kiểm tra tính hợp lệ của token trong các request bảo mật.
 
-#### 39. `/src/server/repositories/mongoClient.ts` (115 dòng)
-- **Nhiệm vụ**: Quản trị kết nối thực tế tới cụm MongoDB Atlas qua thư viện chính thức `mongodb`. Khởi tạo chỉ mục không gian `2dsphere` cho tọa độ địa lý của POI.
+#### 43. `/src/server/repositories/poiRepository.ts` (67 dòng)
+- **Nhiệm vụ**: Repository chuyên trách thao tác dữ liệu POI, cung cấp giao diện truy vấn đồng nhất cho `poiService`.
 
-#### 40. `/src/server/repositories/seedPOIs.ts` (320 dòng)
-- **Nhiệm vụ**: Bộ dữ liệu hạt giống (Seed Data) chuẩn xác của 8 điểm chiêm bái tại Việt Nam Quốc Tự:
+#### 44. `/src/server/repositories/db.ts` (451 dòng)
+- **Nhiệm vụ**: Bộ máy cơ sở dữ liệu nhúng `MongoDatabaseEngine`: Quản lý các bộ nhớ BSON In-Memory (`campuses`, `pois`, `translations`, `media`, `dailyVisits`, `adminUsers`), nạp dữ liệu khởi tạo từ `seedPOIs.ts` và đồng bộ 2 chiều với cụm MongoDB Atlas từ xa.
+
+#### 45. `/src/server/repositories/mongoClient.ts` (139 dòng)
+- **Nhiệm vụ**: Quản lý kết nối thực tế tới cụm MongoDB Atlas: Kiểm tra độ trễ (ping latency), khởi tạo kết nối an toàn và tạo chỉ mục không gian `2dsphere` cho tọa độ địa lý.
+
+#### 46. `/src/server/repositories/seedPOIs.ts` (681 dòng)
+- **Nhiệm vụ**: Dữ liệu hạt giống chuẩn xác của 8 điểm chiêm bái trọng điểm tại Việt Nam Quốc Tự:
   1. Cổng Tam Quan & Quảng Trường Đài Sen
   2. Đại Hùng Bửu Điện (Chính Điện)
-  3. Bảo Tháp Đa Bảo 13 Tầng (Nơi tôn thờ Xá lợi Trái tim Bồ Tát Thích Quảng Đức)
+  3. Bảo Tháp 13 Tầng (Nơi tôn thờ Xá lợi Trái tim Bồ Tát Thích Quảng Đức)
   4. Quả Đại Hồng Chung 3 Tấn
   5. Tôn Tượng Bồ Tát Quán Thế Âm Lộ Thiên
   6. Vườn Bồ Đề Lâm Tỳ Ni & Hồ Sen An Lạc
@@ -329,26 +333,24 @@ Dưới đây là chi tiết toàn bộ các file trong dự án, nhiệm vụ v
 
 ### VI. SCRIPTS, KIỂM THỬ VÀ TẬP TIN BỔ TRỢ
 
-#### 41. `/test/backend.test.ts` (151 dòng)
-- **Nhiệm vụ**: Kịch bản kiểm thử tích hợp tự động (CI/CD test runner). Kiểm tra công thức Haversine, truy vấn POI không gian GeoJSON, xác thực đăng nhập Admin, bộ lọc Kalman, và bảng MongoDB `real_devices`.
+#### 47. `/test/backend.test.ts` (151 dòng)
+- **Nhiệm vụ**: Kịch bản kiểm thử tích hợp tự động (Integration Test Suite): Kiểm tra công thức khoảng cách Haversine, thuật toán lọc Kalman 2D, xác thực đăng nhập JWT Admin, và truy vấn POI trong cơ sở dữ liệu.
 
-#### 42. `/scripts/seed-mongo.ts` (85 dòng)
-- **Nhiệm vụ**: Script độc lập để đẩy toàn bộ 8 POI và bản dịch vào cụm MongoDB Atlas thực tế qua biến `MONGODB_URI`.
+#### 48. `/scripts/seed-mongo.ts` (85 dòng)
+- **Nhiệm vụ**: Script dòng lệnh độc lập giúp đẩy toàn bộ 8 điểm chiêm bái và các bản dịch khởi tạo trực tiếp lên cụm MongoDB Atlas qua chuỗi kết nối `MONGODB_URI`.
 
-#### 43. `/scripts/generate-mp3-audio.py` (129 dòng)
-- **Nhiệm vụ**: Script Python đã sử dụng để tạo 96 file âm thanh chuông `.mp3` trong thư mục `public/audio/`.
+#### 49. `/scripts/generate-mp3-audio.py` (129 dòng)
+- **Nhiệm vụ**: Script Python bổ trợ tạo các file âm thanh tiếng chuông mẫu trong thư mục `public/audio/`.
 
-#### 44. `/python/spatial_ai_service.py` (150 dòng)
-- **Nhiệm vụ**: Micro-engine Python độc lập (tính Haversine & tổng hợp sóng chuông WAV) - thành phần cũ được giữ lại phục vụ chạy test.
+#### 50. `/python/spatial_ai_service.py` (150 dòng)
+- **Nhiệm vụ**: Script Python tính toán tọa độ không gian và tổng hợp âm thanh chuông phục vụ đối sánh giải thuật.
 
 ---
 
-## TỔNG KẾT BẢN ĐỒ KIẾN TRÚC
+## TỔNG KẾT BẢN ĐỒ KIẾN TRÚC 3 LỚP
 
-| Tầng kiến trúc | Thành phần đại diện | Nhiệm vụ chính |
+| Tầng kiến trúc (Tier) | Các thành phần đại diện | Nhiệm vụ chính trong hệ thống |
 | :--- | :--- | :--- |
-| **Giao diện (Frontend)** | `App.tsx`, `RealCampusMap.tsx`, `POIDetailDrawer.tsx` | Trình diễn bản đồ, phát âm thanh, hiển thị bài học lịch sử, tiếp nhận tương tác người dùng |
-| **Âm thanh & Định vị** | `audioSpeech.ts`, `useGPSTracker.ts`, `gpsFilterService.ts` | Thu nhận GPS, lọc Kalman, ngắt mệnh đề, phát giọng đọc tiếng Việt mượt mà |
-| **Điều phối (Server & API)**| `server.ts`, `api.ts`, `poiController.ts`, `realDeviceController.ts` | Định tuyến HTTP, kiểm soát phiên làm việc, tích hợp Vite server |
-| **Trí tuệ nhân tạo (AI)** | `aiTranslationService.ts` (Gemini 3.8 Flash) | Tự động dịch thuật nội dung bài thuyết minh sang 12 thứ tiếng chuẩn Phật học |
-| **Dữ liệu (Data Layer)** | `db.ts`, `mongoClient.ts`, `seedPOIs.ts` | Lưu trữ kép (Embedded In-memory + MongoDB Atlas Cloud), chỉ mục không gian `2dsphere` |
+| **1. Tầng Trình Diễn (Presentation Tier)** | `App.tsx`, `MapLibre3DCampusMap.tsx`, `POIDetailDrawer.tsx`, `AudioPlayerBar.tsx`, `AdminPortal.tsx` | Trình diễn bản đồ 3D WebGL, la bàn số, phát âm thanh thuyết minh, tiếp nhận tương tác người dùng, bảng điều khiển quản trị CMS |
+| **2. Tầng Ứng Dụng & Nghiệp Vụ (Application Tier)** | `server.ts`, `api.ts`, `poiController.ts`, `authController.ts`, `aiTranslationService.ts`, `ttsService.ts`, `gpsFilterService.ts` | Định tuyến REST API, xác thực JWT, [AI Dịch Thuật] Gemini AI, [AI Giọng Nói] Google TTS Engine, lọc nhiễu GPS Kalman 2D, giám sát khách thật |
+| **3. Tầng Dữ Liệu & Lưu Trữ (Data Tier)** | `db.ts`, `poiRepository.ts`, `mongoClient.ts`, `seedPOIs.ts`, thư mục `/public/audio/` | Lưu trữ dữ liệu cấu trúc (MongoDB Atlas + In-Memory Fallback), chỉ mục không gian `2dsphere`, lưu đệm tệp âm thanh thuyết minh tĩnh MP3 |
