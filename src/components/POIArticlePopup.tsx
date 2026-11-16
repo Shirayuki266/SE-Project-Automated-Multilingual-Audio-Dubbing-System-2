@@ -194,7 +194,12 @@ export const POIArticlePopup: React.FC<POIArticlePopupProps> = ({
         },
       });
       const data = await res.json();
-      if (!data.success) throw new Error(data.error);
+      if (!data.success) {
+        if (res.status === 401 || (data.error && data.error.includes('Quản trị'))) {
+          throw new Error('Phiên làm việc đã hết hạn hoặc máy chủ vừa khởi động lại. Vui lòng đóng cửa sổ này, bấm [Đăng xuất] ở góc phải trên và đăng nhập lại (admin / vnqt@2026).');
+        }
+        throw new Error(data.error);
+      }
       onShowNotify(`Đã tạo lại Audio thuyết minh thành công cho tiếng [${selectedLang.toUpperCase()}]!`);
       onRefreshPOIs();
     } catch (err: any) {

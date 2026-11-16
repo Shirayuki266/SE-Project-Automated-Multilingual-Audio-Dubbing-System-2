@@ -73,6 +73,27 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [loginError, setLoginError] = useState<string | null>(null);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
+  // Auto-verify token validity with server on mount / token change
+  useEffect(() => {
+    if (authToken) {
+      fetch('/api/auth/me', {
+        headers: { Authorization: `Bearer ${authToken}` },
+      })
+        .then((r) => r.json())
+        .then((res) => {
+          if (!res.success) {
+            console.warn('[AdminPortal] Token expired or invalid on server. Resetting session.');
+            setAuthToken(null);
+            setCurrentUser(null);
+            localStorage.removeItem('vnqt_admin_token');
+          } else if (res.user) {
+            setCurrentUser(res.user);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [authToken]);
+
   // Active Tabs: 3 Main Tabs (Dashboard & Thống kê lưu lượng là 1, POIs, Audio Settings)
   const [activeTab, setActiveTab] = useState<'dashboard' | 'pois' | 'audio'>('dashboard');
 
