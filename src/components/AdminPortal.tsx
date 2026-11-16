@@ -693,7 +693,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   </div>
                   <div className="text-xs text-[#5c7362] space-y-1">
                     <p>Model: <span className="font-mono text-[#19231b] font-semibold">gemini-2.5-flash</span></p>
-                    <p>Nhiệm vụ: Dịch kịch bản 12 ngôn ngữ & Chatbot Tuệ Đăng</p>
+                    <p>Nhiệm vụ: Dịch kịch bản 12 ngôn ngữ tự động</p>
                     <p>Định dạng: Structured JSON Schema</p>
                   </div>
                 </div>

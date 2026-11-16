@@ -8,7 +8,6 @@ import { poiController } from '../controllers/poiController.js';
 import { authController } from '../controllers/authController.js';
 import { ttsService } from '../services/ttsService.js';
 import { poiService } from '../services/poiService.js';
-import { chatbotService } from '../services/chatbotService.js';
 import { localizationService } from '../services/localizationService.js';
 import { dailyVisitService } from '../services/dailyVisitService.js';
 import { mongoManager } from '../repositories/mongoClient.js';
@@ -322,17 +321,6 @@ router.get('/audio/bell', async (req, res) => {
   }
 });
 
-// =========================================================================
-// 8. AI CHATBOT (Tuệ Đăng)
-// =========================================================================
-router.post('/chat', async (req, res) => {
-  try {
-    const result = await chatbotService.chat(req.body || {});
-    res.json(result);
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
 
 // =========================================================================
 // 9. 1-CLICK AI LOCALIZATION (12 Ngôn Ngữ + TTS Audio)
