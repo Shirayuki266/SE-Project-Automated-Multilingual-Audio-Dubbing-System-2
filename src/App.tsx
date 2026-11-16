@@ -182,7 +182,10 @@ export default function App() {
       fetch('/api/visit/checkin', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ deviceId: fp }),
+        body: JSON.stringify({
+          deviceId: fp,
+          maxTouchPoints: typeof navigator !== 'undefined' ? (navigator.maxTouchPoints || 0) : 0,
+        }),
       })
         .then((r) => r.json())
         .then((res) => {
@@ -213,6 +216,8 @@ export default function App() {
     };
   }, []);
 
+  const reportedPoiListensRef = useRef<Set<string>>(new Set());
+
   // Audio Engine State Listener
   useEffect(() => {
     speechEngine.setOnStateChange((state) => {
@@ -226,12 +231,35 @@ export default function App() {
       if (state.status) setAudioStatus(state.status);
       setAudioStatusMessage(state.statusMessage);
       setAutoplayBlocked(Boolean(state.autoplayBlocked));
+
+      // Báo cáo sự kiện nghe POI khi thời lượng phát đạt ngưỡng (≥ 5s)
+      if (
+        state.isSpeaking &&
+        state.currentPoiId &&
+        state.elapsedSeconds >= 5 &&
+        !reportedPoiListensRef.current.has(state.currentPoiId)
+      ) {
+        reportedPoiListensRef.current.add(state.currentPoiId);
+        getBrowserFingerprint().then((fp) => {
+          fetch('/api/visits/listen', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              poiId: state.currentPoiId,
+              lang: currentLang,
+              deviceId: fp,
+              maxTouchPoints: typeof navigator !== 'undefined' ? (navigator.maxTouchPoints || 0) : 0,
+              duration: state.elapsedSeconds,
+            }),
+          }).catch(() => {});
+        });
+      }
     });
 
     return () => {
       speechEngine.stop();
     };
-  }, []);
+  }, [currentLang]);
 
   // Play POI Narration - ONLY on active user gesture
   const handlePlayPOI = useCallback(

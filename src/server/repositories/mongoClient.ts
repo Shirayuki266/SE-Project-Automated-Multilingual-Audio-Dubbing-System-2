@@ -40,11 +40,18 @@ export class MongoDatabaseManager {
         // TTL index: MongoDB automatically drops documents after 86400 seconds (24h)
         await this.db.collection('daily_visits').createIndex({ createdAt: 1 }, { expireAfterSeconds: 86400 });
 
-        console.log(`[MongoDB] Connected successfully to "${dbName}". Indexes verified (2dsphere, unique compound, TTL 24h).`);
+        // Ensure aggregated stats collections (No personal identifiers stored)
+        await this.db.collection('daily_stats').createIndex({ date: 1 }, { unique: true });
+        await this.db.collection('poi_listen_stats').createIndex({ date: 1, poiId: 1, lang: 1 }, { unique: true });
+        await this.db.collection('poi_daily_listens').createIndex({ day: 1, poiId: 1, visitorHash: 1 }, { unique: true });
+        await this.db.collection('poi_daily_listens').createIndex({ createdAt: 1 }, { expireAfterSeconds: 86400 });
+
+        console.log(`[MongoDB] Connected successfully to "${dbName}". Indexes verified (2dsphere, unique compound, TTL 24h, stats).`);
         return true;
       } catch (err: any) {
         console.error(`[MongoDB] Connection failed: ${err.message}`);
         this.isConnectedToRemote = false;
+        this.initPromise = null;
         return false;
       }
     })();

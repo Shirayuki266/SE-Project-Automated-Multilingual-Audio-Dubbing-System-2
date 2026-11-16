@@ -6,6 +6,7 @@ import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import { poiController } from '../controllers/poiController.js';
 import { authController } from '../controllers/authController.js';
+import { statsController } from '../controllers/statsController.js';
 import { ttsService } from '../services/ttsService.js';
 import { poiService } from '../services/poiService.js';
 import { chatbotService } from '../services/chatbotService.js';
@@ -51,12 +52,15 @@ const upload = multer({
   },
 });
 
-// Middleware xác thực Admin JWT
+// Middleware xác thực Admin JWT (trả 401 khi thiếu JWT hoặc không hợp lệ)
 const requireAdmin = (req: Request, res: Response, next: NextFunction) => {
   const token = req.headers.authorization?.replace('Bearer ', '') || '';
+  if (!token) {
+    return res.status(401).json({ success: false, error: 'Yêu cầu mã xác thực JWT.' });
+  }
   const validation = authService.validateToken(token);
   if (!validation.valid) {
-    return res.status(403).json({ success: false, error: 'Yêu cầu quyền Quản trị viên (Admin).' });
+    return res.status(401).json({ success: false, error: 'Yêu cầu quyền Quản trị viên (Admin).' });
   }
   next();
 };
@@ -133,9 +137,10 @@ router.get('/mongodb/status', async (_req, res) => {
 // =========================================================================
 router.post('/visit/checkin', visitRateLimiter, async (req, res) => {
   try {
-    const { deviceId } = req.body || {};
-    const userAgent = req.headers['user-agent'] || '';
-    const result = await dailyVisitService.recordVisit(deviceId || 'client-anon', userAgent);
+    const { deviceId, maxTouchPoints } = req.body || {};
+    const userAgent = (req.headers['user-agent'] as string) || '';
+    const touchPoints = Number(maxTouchPoints) || 0;
+    const result = await dailyVisitService.recordVisit(deviceId || 'client-anon', userAgent, touchPoints);
     res.json({
       success: true,
       data: result,
@@ -159,6 +164,18 @@ router.get('/visit/today-count', async (_req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 });
+
+// Sự kiện nghe POI khi thời lượng phát đạt ngưỡng (≥ 5s)
+router.post('/visits/listen', visitRateLimiter, (req, res) => statsController.recordListen(req, res));
+router.post('/visit/listen', visitRateLimiter, (req, res) => statsController.recordListen(req, res));
+
+// =========================================================================
+// 2B. BẢNG THỐNG KÊ LƯU LƯỢNG & PHÂN TÍCH ADMIN (Yêu cầu JWT)
+// =========================================================================
+router.get('/admin/stats/visitors', requireAdmin, (req, res) => statsController.getVisitors(req, res));
+router.get('/admin/stats/devices', requireAdmin, (req, res) => statsController.getDevices(req, res));
+router.get('/admin/stats/poi-top', requireAdmin, (req, res) => statsController.getTopPOIs(req, res));
+router.get('/admin/stats/summary', requireAdmin, (req, res) => statsController.getSummary(req, res));
 
 // =========================================================================
 // 3. ADMIN AUTHENTICATION

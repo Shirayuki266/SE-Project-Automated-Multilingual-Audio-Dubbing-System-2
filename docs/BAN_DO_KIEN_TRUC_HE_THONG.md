@@ -36,9 +36,9 @@ Tài liệu này đóng vai trò như **Kim Chỉ Nam / Bản Đồ Kỹ Thuật
 │   [src/server/routes/api.ts] (Bộ định tuyến trung tâm)                           │
 │       │                                                                          │
 │       ├──► [controllers/poiController.ts]                                        │
-│       ├──► [controllers/realDeviceController.ts]                                 │
-│       ├──► [controllers/analyticsController.ts]                                  │
-│       └──► [controllers/authController.ts]                                       │
+│       ├──► [controllers/statsController.ts] (Phân tích lưu lượng & Top POIs)     │
+│       ├──► [controllers/authController.ts]                                       │
+│       └──► [controllers/ttsController.ts]                                        │
 └──────────────────────────────────────┬───────────────────────────────────────────┘
                                        │ Gọi thực thi nghiệp vụ
                                        ▼
@@ -46,17 +46,18 @@ Tài liệu này đóng vai trò như **Kim Chỉ Nam / Bản Đồ Kỹ Thuật
 │                            TẦNG DỊCH VỤ (SERVICE LAYER)                           │
 │                                                                                  │
 │   ├── [services/poiService.ts]          ── Quản lý nghiệp vụ điểm chiêm bái      │
-│   ├── [services/aiTranslationService.ts]── Gọi Google GenAI (Gemini 3.8 Flash)   │
+│   ├── [services/statsService.ts]        ── Thống kê lưu lượng, thiết bị & POIs   │
+│   ├── [services/dailyVisitService.ts]   ── Deduplication HMAC-SHA256 (1 lượt/ngày)
+│   ├── [services/aiService.ts]           ── Gọi Google GenAI (Gemini 2.5/3.8 Flash)
 │   ├── [services/gpsFilterService.ts]    ── Thuật toán Kalman Filter 2D           │
-│   ├── [services/analyticsService.ts]    ── Phân tích lưu lượng & Deduplication   │
-│   └── [services/authService.ts]         ── Xác thực mật khẩu & Token JWT         │
+│   └── [services/authService.ts]         ── Xác thực mật khẩu & Token JWT Admin   │
 └──────────────────────────────────────┬───────────────────────────────────────────┘
                                        │ Gọi truy xuất dữ liệu
                                        ▼
 ┌──────────────────────────────────────────────────────────────────────────────────┐
 │                        TẦNG TRUY XUẤT DỮ LIỆU (DATA LAYER)                       │
 │                                                                                  │
-│   [repositories/poiRepository.ts] & [analyticsRepository.ts]                     │
+│   [repositories/poiRepository.ts] & [repositories/statsRepository.ts]            │
 │       │                                                                          │
 │       ▼                                                                          │
 │   [repositories/db.ts] (Bộ máy CSDL nhúng MongoDatabaseEngine)                   │

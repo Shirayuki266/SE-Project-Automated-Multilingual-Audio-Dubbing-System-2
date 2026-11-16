@@ -92,3 +92,78 @@ export interface DailyVisitCheckinResult {
   todayUniqueVisitors: number;
   message: string;
 }
+
+// =========================================================================
+// THỐNG KÊ LƯU LƯỢNG & PHÂN TÍCH TỔNG HỢP (PRIVACY-PRESERVING AGGREGATES)
+// =========================================================================
+
+export type DeviceType = 'iphone' | 'android' | 'pc' | 'other';
+
+/**
+ * Phân loại thiết bị từ User-Agent và Client Hints / maxTouchPoints
+ * TUYỆT ĐỐI KHÔNG LƯU chuỗi User-Agent thô vào database.
+ * Đặc biệt: iPadOS 13+ gửi UA là Macintosh, nhận diện bằng maxTouchPoints > 1.
+ */
+export function classifyDevice(userAgent: string = '', maxTouchPoints: number = 0): DeviceType {
+  const ua = (userAgent || '').toLowerCase();
+
+  // iPadOS masquerading as macOS (User-Agent chứa Macintosh nhưng màn hình cảm ứng đa điểm)
+  if (ua.includes('macintosh') && maxTouchPoints > 1) {
+    return 'iphone'; // Thuộc nhóm thiết bị iOS theo đặc tả
+  }
+
+  // Thiết bị iOS (iPhone, iPad, iPod)
+  if (ua.includes('iphone') || ua.includes('ipad') || ua.includes('ipod')) {
+    return 'iphone';
+  }
+
+  // Thiết bị Android
+  if (ua.includes('android')) {
+    return 'android';
+  }
+
+  // Máy tính PC (Windows, macOS thực thụ, Linux, ChromeOS)
+  if (
+    ua.includes('windows') ||
+    ua.includes('win64') ||
+    ua.includes('win32') ||
+    (ua.includes('macintosh') && maxTouchPoints <= 1) ||
+    ua.includes('mac os x') ||
+    ua.includes('linux') ||
+    ua.includes('cros')
+  ) {
+    return 'pc';
+  }
+
+  return 'other';
+}
+
+// Bảng thống kê tổng hợp số lượng thiết bị theo ngày (không lưu định danh)
+export interface DailyStatsDocument {
+  date: string; // 'YYYY-MM-DD'
+  uniqueDevices: number;
+  device: {
+    iphone: number;
+    android: number;
+    pc: number;
+    other: number;
+  };
+}
+
+// Bảng thống kê lượt nghe POI theo ngày và ngôn ngữ (không lưu định danh)
+export interface POIListenStatsDocument {
+  date: string; // 'YYYY-MM-DD'
+  poiId: string;
+  lang: string;
+  listens: number;
+  uniqueDevices: number;
+  totalDurationSeconds?: number;
+}
+
+// Bảng tạm 24h để tính uniqueDevices cho từng POI trong ngày (tự hủy sau 24h bằng TTL index)
+export interface POIDailyListenDocument {
+  day: string; // 'YYYY-MM-DD'
+  poiId: string;
+  visitorHash: string; // HMAC-SHA256
+  createdAt: Date; // TTL 86400s
+}

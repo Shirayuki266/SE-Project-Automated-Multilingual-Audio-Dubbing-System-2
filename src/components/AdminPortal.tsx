@@ -41,6 +41,13 @@ import {
   Upload,
   Camera,
   Check,
+  TrendingUp,
+  Smartphone,
+  Monitor,
+  Calendar,
+  PieChart,
+  Award,
+  Clock,
 } from 'lucide-react';
 
 interface AdminPortalProps {
@@ -66,8 +73,27 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [loginError, setLoginError] = useState<string | null>(null);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
-  // Active Tabs: 3 Main Tabs (Dashboard, POIs, Audio Settings)
+  // Active Tabs: 3 Main Tabs (Dashboard & Thống kê lưu lượng là 1, POIs, Audio Settings)
   const [activeTab, setActiveTab] = useState<'dashboard' | 'pois' | 'audio'>('dashboard');
+
+  // Analytics & Stats State
+  const [statsSummary, setStatsSummary] = useState<any>(null);
+  const [visitorGranularity, setVisitorGranularity] = useState<'day' | 'month'>('day');
+  const [statsDateFrom, setStatsDateFrom] = useState<string>(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 6);
+    return d.toLocaleDateString('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' });
+  });
+  const [statsDateTo, setStatsDateTo] = useState<string>(() => {
+    return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' });
+  });
+  const [visitorStatsData, setVisitorStatsData] = useState<any>(null);
+  const [deviceStatsData, setDeviceStatsData] = useState<any>(null);
+  const [topPOIsData, setTopPOIsData] = useState<any>(null);
+  const [topPoiLangFilter, setTopPoiLangFilter] = useState<string>('all');
+  const [isLoadingStats, setIsLoadingStats] = useState(false);
+  const [statsError, setStatsError] = useState<string | null>(null);
+  const [hoveredBarIndex, setHoveredBarIndex] = useState<number | null>(null);
 
   // Popup "Xem/Sửa bài viết" State
   const [articlePopupPoi, setArticlePopupPoi] = useState<RichPOI | null>(null);
@@ -163,11 +189,50 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     }
   };
 
-  useEffect(() => {
-    if (authToken) {
-      fetchDashboardMetrics();
+  // Fetch Analytics & Stats Data
+  const fetchStatsData = async () => {
+    if (!authToken) return;
+    setIsLoadingStats(true);
+    setStatsError(null);
+    try {
+      const headers = { Authorization: `Bearer ${authToken}` };
+      const [sumRes, visRes, devRes, topRes] = await Promise.all([
+        fetch('/api/admin/stats/summary', { headers }),
+        fetch(
+          `/api/admin/stats/visitors?granularity=${visitorGranularity}&from=${statsDateFrom}&to=${statsDateTo}`,
+          { headers }
+        ),
+        fetch(`/api/admin/stats/devices?from=${statsDateFrom}&to=${statsDateTo}`, { headers }),
+        fetch(
+          `/api/admin/stats/poi-top?from=${statsDateFrom}&to=${statsDateTo}&lang=${topPoiLangFilter}&limit=10`,
+          { headers }
+        ),
+      ]);
+
+      const [sumData, visData, devData, topData] = await Promise.all([
+        sumRes.json(),
+        visRes.json(),
+        devRes.json(),
+        topRes.json(),
+      ]);
+
+      if (sumData.success) setStatsSummary(sumData.data);
+      if (visData.success) setVisitorStatsData(visData.data);
+      if (devData.success) setDeviceStatsData(devData.data);
+      if (topData.success) setTopPOIsData(topData.data);
+    } catch (err: any) {
+      setStatsError(err.message || 'Không thể tải dữ liệu thống kê');
+    } finally {
+      setIsLoadingStats(false);
     }
-  }, [authToken, activeTab]);
+  };
+
+  useEffect(() => {
+    if (authToken && activeTab === 'dashboard') {
+      fetchDashboardMetrics();
+      fetchStatsData();
+    }
+  }, [authToken, activeTab, visitorGranularity, statsDateFrom, statsDateTo, topPoiLangFilter]);
 
   // Generate QR when modal opens
   useEffect(() => {
@@ -593,7 +658,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
           }`}
         >
           <BarChart3 className="w-3.5 h-3.5" />
-          <span>1. Dashboard Tổng Quan</span>
+          <span>1. Dashboard </span>
         </button>
 
         <button
@@ -624,38 +689,630 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       {/* Main Content Area */}
       <main className="flex-1 overflow-y-auto p-4 sm:p-6 pb-24">
         {/* ========================================================= */}
-        {/* TAB 1: DASHBOARD (CHỈ CÒN 3 KHỐI THEO YÊU CẦU CỦA USER)   */}
+        {/* TAB 1: DASHBOARD & THỐNG KÊ LƯU LƯỢNG (HỢP NHẤT TOÀN DIỆN) */}
         {/* ========================================================= */}
         {activeTab === 'dashboard' && (
           <div className="space-y-6 animate-fade-in max-w-6xl mx-auto">
-            {/* KHỐI 1: TỔNG LƯỢT TRUY CẬP THỰC HÔM NAY (1 MÁY = 1 NGƯỜI) */}
-            <div className="bg-gradient-to-br from-[#2d5a37] to-[#1e3d25] rounded-3xl p-6 text-white shadow-md border border-[#23462b] flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div className="space-y-1">
-                <span className="text-xs uppercase tracking-wider font-semibold text-emerald-200 flex items-center gap-1.5">
-                  <Activity className="w-4 h-4 text-emerald-300" />
-                  <span>Khối 1: Lưu Lượng Khách Chiêm Bái Thực Hôm Nay</span>
+            {/* 1. THANH TIÊU ĐỀ & BỘ ĐIỀU KHIỂN THỜI GIAN */}
+            <div className="bg-white rounded-3xl p-5 border border-[#e2eae4] shadow-xs flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
+              <div>
+                <span className="text-xs uppercase tracking-wider font-semibold text-[#2d5a37] flex items-center gap-1.5">
+                  <TrendingUp className="w-4 h-4 text-[#2d5a37]" />
+                  <span>Trung Tâm Điều Hành & Thống Kê Lưu Lượng</span>
                 </span>
-                <h3 className="text-2xl sm:text-3xl font-serif font-bold">
-                  {todayVisitors} <span className="text-base font-normal font-sans text-emerald-100">khách hành hương</span>
-                </h3>
-                <p className="text-xs text-emerald-200/90 leading-relaxed max-w-xl">
-                  Cơ chế chống spam: 1 thiết bị = 1 người = tối đa 1 lượt tính trong ngày. Dữ liệu mã hóa HMAC-SHA256 lưu tạm 24h trên MongoDB và tự hủy bằng TTL Index.
+                <h2 className="font-serif font-bold text-xl text-[#19231b] mt-0.5">
+                  Tổng Quan Hoạt Động & Lưu Lượng Du Khách
+                </h2>
+                <p className="text-xs text-[#5c7362] mt-0.5">
+                  Dữ liệu tổng hợp ẩn danh bảo vệ quyền riêng tư du khách (không lưu IP thô hay chuỗi UA)
                 </p>
               </div>
 
-              <div className="bg-white/10 backdrop-blur-md px-4 py-3 rounded-2xl border border-white/20 text-center sm:text-right flex-shrink-0">
-                <span className="block text-[11px] text-emerald-200">Múi giờ ghi nhận</span>
-                <span className="text-xs font-mono font-bold">Asia/Ho_Chi_Minh (GMT+7)</span>
+              {/* Bộ điều khiển chọn ngày & đơn vị */}
+              <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto">
+                {/* Chuyển đổi Ngày / Tháng */}
+                <div className="flex items-center bg-[#f7f9f6] p-1 rounded-2xl border border-[#e2eae4] text-xs font-semibold">
+                  <button
+                    onClick={() => setVisitorGranularity('day')}
+                    className={`px-3 py-1.5 rounded-xl transition-all ${
+                      visitorGranularity === 'day'
+                        ? 'bg-[#2d5a37] text-white shadow-xs'
+                        : 'text-[#5c7362] hover:text-[#19231b]'
+                    }`}
+                  >
+                    Theo Ngày
+                  </button>
+                  <button
+                    onClick={() => setVisitorGranularity('month')}
+                    className={`px-3 py-1.5 rounded-xl transition-all ${
+                      visitorGranularity === 'month'
+                        ? 'bg-[#2d5a37] text-white shadow-xs'
+                        : 'text-[#5c7362] hover:text-[#19231b]'
+                    }`}
+                  >
+                    Theo Tháng
+                  </button>
+                </div>
+
+                {/* Nút lọc nhanh */}
+                <div className="hidden sm:flex items-center gap-1 bg-[#f7f9f6] p-1 rounded-2xl border border-[#e2eae4] text-xs">
+                  <button
+                    onClick={() => {
+                      const d = new Date();
+                      d.setDate(d.getDate() - 6);
+                      setStatsDateFrom(d.toLocaleDateString('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }));
+                      setStatsDateTo(new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }));
+                      setVisitorGranularity('day');
+                    }}
+                    className="px-2.5 py-1 rounded-xl text-[#5c7362] hover:bg-white hover:text-[#19231b] transition-colors"
+                  >
+                    7 ngày
+                  </button>
+                  <button
+                    onClick={() => {
+                      const d = new Date();
+                      d.setDate(d.getDate() - 29);
+                      setStatsDateFrom(d.toLocaleDateString('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }));
+                      setStatsDateTo(new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }));
+                      setVisitorGranularity('day');
+                    }}
+                    className="px-2.5 py-1 rounded-xl text-[#5c7362] hover:bg-white hover:text-[#19231b] transition-colors"
+                  >
+                    30 ngày
+                  </button>
+                  <button
+                    onClick={() => {
+                      const d = new Date();
+                      d.setMonth(d.getMonth() - 5);
+                      d.setDate(1);
+                      setStatsDateFrom(d.toLocaleDateString('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }));
+                      setStatsDateTo(new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }));
+                      setVisitorGranularity('month');
+                    }}
+                    className="px-2.5 py-1 rounded-xl text-[#5c7362] hover:bg-white hover:text-[#19231b] transition-colors"
+                  >
+                    6 tháng
+                  </button>
+                </div>
+
+                {/* Chọn ngày tùy chỉnh */}
+                <div className="flex items-center gap-1 text-xs">
+                  <input
+                    type="date"
+                    value={statsDateFrom}
+                    onChange={(e) => setStatsDateFrom(e.target.value)}
+                    className="px-2.5 py-1.5 rounded-xl bg-[#f7f9f6] border border-[#e2eae4] text-xs text-[#19231b] outline-hidden focus:border-[#2d5a37]"
+                    title="Từ ngày"
+                  />
+                  <span className="text-[#5c7362]">-</span>
+                  <input
+                    type="date"
+                    value={statsDateTo}
+                    onChange={(e) => setStatsDateTo(e.target.value)}
+                    className="px-2.5 py-1.5 rounded-xl bg-[#f7f9f6] border border-[#e2eae4] text-xs text-[#19231b] outline-hidden focus:border-[#2d5a37]"
+                    title="Đến ngày"
+                  />
+                </div>
+
+                {/* Nút Refresh */}
+                <button
+                  onClick={() => {
+                    fetchDashboardMetrics();
+                    fetchStatsData();
+                  }}
+                  disabled={isLoadingStats || isLoadingHealth}
+                  className="p-2 rounded-xl bg-[#f7f9f6] hover:bg-[#eef5f0] border border-[#e2eae4] text-[#5c7362] hover:text-[#2d5a37] transition-colors"
+                  title="Tải lại số liệu thống kê"
+                >
+                  <RefreshCw className={`w-4 h-4 ${isLoadingStats || isLoadingHealth ? 'animate-spin' : ''}`} />
+                </button>
               </div>
             </div>
 
-            {/* KHỐI 2: TRẠNG THÁI HẠ TẦNG (MONGODB, GEMINI AI, TTS SERVICE) */}
+            {/* Thông báo lỗi nếu có */}
+            {statsError && (
+              <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center gap-2">
+                <X className="w-4 h-4 text-rose-600 flex-shrink-0" />
+                <span>{statsError}</span>
+              </div>
+            )}
+
+            {/* 2. KHỐI 3 THẺ TỔNG QUAN CHỈ SỐ */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              {/* Thẻ 1: Hôm nay */}
+              <div className="p-5 rounded-3xl bg-gradient-to-br from-[#2d5a37] to-[#1e3d25] text-white shadow-xs space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs uppercase tracking-wider font-semibold text-emerald-200 flex items-center gap-1.5">
+                    <Activity className="w-4 h-4 text-emerald-300" />
+                    <span>Hôm Nay (Thực)</span>
+                  </span>
+                  <span className="text-[10px] bg-emerald-500/30 text-emerald-200 px-2 py-0.5 rounded-full font-mono">
+                    1 máy = 1 lượt
+                  </span>
+                </div>
+                <div className="text-2xl sm:text-3xl font-serif font-bold">
+                  {todayVisitors} <span className="text-xs font-normal font-sans text-emerald-100">khách hành hương</span>
+                </div>
+                <p className="text-[11px] text-emerald-200/90 leading-tight">
+                  Chống spam: HMAC-SHA256 lưu tạm 24h trên MongoDB và tự hủy bằng TTL Index.
+                </p>
+              </div>
+
+              {/* Thẻ 2: 7 Ngày Gần Nhất */}
+              <div className="p-5 rounded-3xl bg-white border border-[#e2eae4] shadow-xs space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs uppercase tracking-wider font-semibold text-[#5c7362] flex items-center gap-1.5">
+                    <Calendar className="w-4 h-4 text-[#2d5a37]" />
+                    <span>7 Ngày Gần Nhất</span>
+                  </span>
+                </div>
+                <div className="text-2xl sm:text-3xl font-serif font-bold text-[#19231b]">
+                  {statsSummary?.sevenDaysDevices ?? 1}{' '}
+                  <span className="text-xs font-normal font-sans text-[#5c7362]">thiết bị</span>
+                </div>
+                <p className="text-[11px] text-[#5c7362] leading-tight">
+                  Tổng lượt thiết bị duy nhất viếng thăm trong 7 ngày qua.
+                </p>
+              </div>
+
+              {/* Thẻ 3: Tháng Này */}
+              <div className="p-5 rounded-3xl bg-white border border-[#e2eae4] shadow-xs space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs uppercase tracking-wider font-semibold text-[#5c7362] flex items-center gap-1.5">
+                    <BarChart3 className="w-4 h-4 text-[#2d5a37]" />
+                    <span>Tháng Này</span>
+                  </span>
+                  <span className="text-[10px] bg-[#eef5f0] text-[#2d5a37] px-2 py-0.5 rounded-full font-semibold">
+                    Tháng {new Date().getMonth() + 1}/{new Date().getFullYear()}
+                  </span>
+                </div>
+                <div className="text-2xl sm:text-3xl font-serif font-bold text-[#19231b]">
+                  {statsSummary?.thisMonthDevices ?? 1}{' '}
+                  <span className="text-xs font-normal font-sans text-[#5c7362]">thiết bị</span>
+                </div>
+                <p className="text-[11px] text-[#5c7362] leading-tight">
+                  Lưu lượng tích lũy của khách hành hương trong tháng hiện hành.
+                </p>
+              </div>
+            </div>
+
+            {/* 3. BIỂU ĐỒ LƯU LƯỢNG DU KHÁCH THỰC TẾ (THEO NGÀY / THEO THÁNG) */}
+            <div className="bg-white rounded-3xl p-6 border border-[#e2eae4] shadow-xs space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-[#f0f3f1] gap-2">
+                <div className="flex items-center gap-2">
+                  <TrendingUp className="w-5 h-5 text-[#2d5a37]" />
+                  <h3 className="font-serif font-bold text-base sm:text-lg text-[#19231b]">
+                    Biểu Đồ Lưu Lượng Du Khách Thực Tế ({visitorGranularity === 'day' ? 'Theo Ngày' : 'Theo Tháng'})
+                  </h3>
+                </div>
+                <div className="text-xs text-[#5c7362]">
+                  Tổng khoảng thời gian:{' '}
+                  <span className="font-bold text-[#2d5a37]">
+                    {visitorStatsData?.totalUniqueDevices || 0} thiết bị
+                  </span>
+                </div>
+              </div>
+
+              {/* Khu vực vẽ biểu đồ SVG */}
+              {isLoadingStats ? (
+                <div className="py-20 flex flex-col items-center justify-center text-[#5c7362] gap-2">
+                  <RefreshCw className="w-6 h-6 animate-spin text-[#2d5a37]" />
+                  <span className="text-xs font-semibold">Đang tổng hợp dữ liệu lưu lượng...</span>
+                </div>
+              ) : !visitorStatsData || !visitorStatsData.items || visitorStatsData.items.length === 0 ? (
+                <div className="py-16 text-center text-xs text-[#5c7362]">
+                  Không có dữ liệu trong khoảng thời gian đã chọn.
+                </div>
+              ) : (
+                (() => {
+                  const items = visitorStatsData.items;
+                  const maxVal = Math.max(...items.map((i: any) => i.uniqueDevices || 0), 4);
+                  const chartWidth = 800;
+                  const chartHeight = 220;
+                  const padBottom = 35;
+                  const padTop = 20;
+                  const padLeft = 45;
+                  const padRight = 20;
+                  const drawWidth = chartWidth - padLeft - padRight;
+                  const drawHeight = chartHeight - padTop - padBottom;
+                  const slotWidth = drawWidth / items.length;
+                  const barWidth = Math.max(10, Math.min(36, slotWidth * 0.65));
+
+                  return (
+                    <div className="relative">
+                      <div className="w-full overflow-x-auto no-scrollbar">
+                        <svg
+                          viewBox={`0 0 ${chartWidth} ${chartHeight}`}
+                          className="w-full min-w-[600px] h-56 select-none"
+                        >
+                          {/* Đường lưới ngang & nhãn trục Y */}
+                          {[0, 0.33, 0.66, 1].map((pct, idx) => {
+                            const y = padTop + drawHeight * (1 - pct);
+                            const val = Math.round(maxVal * pct);
+                            return (
+                              <g key={idx}>
+                                <line
+                                  x1={padLeft}
+                                  y1={y}
+                                  x2={chartWidth - padRight}
+                                  y2={y}
+                                  stroke="#e8efe9"
+                                  strokeDasharray="4 4"
+                                />
+                                <text
+                                  x={padLeft - 8}
+                                  y={y + 3}
+                                  textAnchor="end"
+                                  className="text-[10px] fill-[#7a8e80] font-mono"
+                                >
+                                  {val}
+                                </text>
+                              </g>
+                            );
+                          })}
+
+                          {/* Cột dữ liệu */}
+                          {items.map((item: any, idx: number) => {
+                            const val = item.uniqueDevices || 0;
+                            const barH = (val / maxVal) * drawHeight;
+                            const x = padLeft + idx * slotWidth + (slotWidth - barWidth) / 2;
+                            const y = padTop + drawHeight - barH;
+                            const isHovered = hoveredBarIndex === idx;
+
+                            let label = item.period;
+                            if (visitorGranularity === 'day') {
+                              const parts = item.period.split('-');
+                              label = `${parts[2]}/${parts[1]}`;
+                            }
+
+                            return (
+                              <g
+                                key={idx}
+                                onMouseEnter={() => setHoveredBarIndex(idx)}
+                                onMouseLeave={() => setHoveredBarIndex(null)}
+                                className="cursor-pointer group"
+                              >
+                                <rect
+                                  x={x}
+                                  y={val > 0 ? y : padTop + drawHeight - 2}
+                                  width={barWidth}
+                                  height={val > 0 ? barH : 2}
+                                  rx="4"
+                                  className={`transition-all duration-200 ${
+                                    isHovered
+                                      ? 'fill-[#1e3d25] opacity-100'
+                                      : val > 0
+                                      ? 'fill-[#2d5a37] opacity-90 group-hover:opacity-100'
+                                      : 'fill-[#e2eae4]'
+                                  }`}
+                                />
+
+                                {val > 0 && (
+                                  <text
+                                    x={x + barWidth / 2}
+                                    y={y - 5}
+                                    textAnchor="middle"
+                                    className="text-[10px] font-mono font-bold fill-[#2d5a37]"
+                                  >
+                                    {val}
+                                  </text>
+                                )}
+
+                                {(items.length <= 15 || idx % Math.ceil(items.length / 12) === 0) && (
+                                  <text
+                                    x={x + barWidth / 2}
+                                    y={chartHeight - 10}
+                                    textAnchor="middle"
+                                    className="text-[9px] fill-[#5c7362] font-mono"
+                                  >
+                                    {label}
+                                  </text>
+                                )}
+                              </g>
+                            );
+                          })}
+                        </svg>
+                      </div>
+
+                      {hoveredBarIndex !== null && items[hoveredBarIndex] && (
+                        <div className="absolute top-2 right-4 bg-[#1e3d25] text-white p-3 rounded-2xl shadow-xl text-xs z-10 space-y-1 pointer-events-none animate-fade-in border border-[#2d5a37]">
+                          <div className="font-bold text-emerald-200 flex items-center justify-between gap-4">
+                            <span>
+                              {visitorGranularity === 'day' ? 'Ngày: ' : 'Tháng: '}
+                              {items[hoveredBarIndex].period}
+                            </span>
+                            <span className="font-mono text-white text-sm">
+                              {items[hoveredBarIndex].uniqueDevices} thiết bị
+                            </span>
+                          </div>
+                          <div className="text-[11px] text-emerald-100/80 pt-1 border-t border-emerald-800/60 grid grid-cols-2 gap-x-3 gap-y-0.5">
+                            <span>iPhone (iOS): {items[hoveredBarIndex].iphone}</span>
+                            <span>Android: {items[hoveredBarIndex].android}</span>
+                            <span>Máy tính: {items[hoveredBarIndex].pc}</span>
+                            <span>Khác: {items[hoveredBarIndex].other}</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()
+              )}
+            </div>
+
+            {/* 4. HÀNG 2 CỘT: PHÂN LOẠI THIẾT BỊ VÀ BẢNG XẾP HẠNG TOP POIS */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* PHÂN LOẠI THIẾT BỊ (DONUT CHART & PERCENTAGES) */}
+              <div className="bg-white rounded-3xl p-6 border border-[#e2eae4] shadow-xs space-y-4 flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-between pb-3 border-b border-[#f0f3f1]">
+                    <div className="flex items-center gap-2">
+                      <PieChart className="w-5 h-5 text-[#2d5a37]" />
+                      <h3 className="font-serif font-bold text-base text-[#19231b]">Phân Loại Thiết Bị</h3>
+                    </div>
+                    <span className="text-xs font-mono text-[#5c7362]">
+                      Tổng: {deviceStatsData?.total || 0}
+                    </span>
+                  </div>
+
+                  <div className="py-4 flex items-center justify-center">
+                    <div className="relative w-40 h-40">
+                      <svg viewBox="0 0 200 200" className="w-full h-full -rotate-90">
+                        <circle
+                          cx="100"
+                          cy="100"
+                          r="65"
+                          fill="none"
+                          stroke="#f0f3f1"
+                          strokeWidth="24"
+                        />
+                        {(() => {
+                          const dev = deviceStatsData?.breakdown || { iphone: 0, android: 0, pc: 0, other: 0 };
+                          const total = deviceStatsData?.total || 0;
+                          if (total === 0) return null;
+
+                          const circumference = 2 * Math.PI * 65;
+                          const slices = [
+                            { key: 'iphone', val: dev.iphone, color: '#10b981' },
+                            { key: 'android', val: dev.android, color: '#06b6d4' },
+                            { key: 'pc', val: dev.pc, color: '#8b5cf6' },
+                            { key: 'other', val: dev.other, color: '#94a3b8' },
+                          ];
+
+                          let accumulated = 0;
+                          return slices.map((s, idx) => {
+                            if (s.val <= 0) return null;
+                            const sliceLength = (s.val / total) * circumference;
+                            const offset = (accumulated / total) * circumference;
+                            accumulated += s.val;
+
+                            return (
+                              <circle
+                                key={idx}
+                                cx="100"
+                                cy="100"
+                                r="65"
+                                fill="none"
+                                stroke={s.color}
+                                strokeWidth="24"
+                                strokeDasharray={`${sliceLength} ${circumference}`}
+                                strokeDashoffset={-offset}
+                                className="transition-all duration-500"
+                              />
+                            );
+                          });
+                        })()}
+                      </svg>
+                      <div className="absolute inset-0 flex flex-col items-center justify-center text-center pointer-events-none">
+                        <span className="text-xl font-serif font-bold text-[#19231b]">
+                          {deviceStatsData?.total || 0}
+                        </span>
+                        <span className="text-[10px] text-[#5c7362] uppercase tracking-wider font-semibold">
+                          Thiết bị
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2.5 text-xs">
+                    <div className="flex items-center justify-between p-2 rounded-xl bg-[#f7f9f6] border border-[#e2eae4]">
+                      <div className="flex items-center gap-2">
+                        <div className="w-3 h-3 rounded-full bg-[#10b981]" />
+                        <span className="font-semibold text-[#19231b]">iPhone (iOS)</span>
+                      </div>
+                      <div className="text-right">
+                        <span className="font-mono font-bold text-[#19231b]">
+                          {deviceStatsData?.breakdown?.iphone || 0}
+                        </span>
+                        <span className="text-[#5c7362] ml-1.5 text-[11px]">
+                          ({deviceStatsData?.percentages?.iphone || 0}%)
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between p-2 rounded-xl bg-[#f7f9f6] border border-[#e2eae4]">
+                      <div className="flex items-center gap-2">
+                        <div className="w-3 h-3 rounded-full bg-[#06b6d4]" />
+                        <span className="font-semibold text-[#19231b]">Android</span>
+                      </div>
+                      <div className="text-right">
+                        <span className="font-mono font-bold text-[#19231b]">
+                          {deviceStatsData?.breakdown?.android || 0}
+                        </span>
+                        <span className="text-[#5c7362] ml-1.5 text-[11px]">
+                          ({deviceStatsData?.percentages?.android || 0}%)
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between p-2 rounded-xl bg-[#f7f9f6] border border-[#e2eae4]">
+                      <div className="flex items-center gap-2">
+                        <div className="w-3 h-3 rounded-full bg-[#8b5cf6]" />
+                        <span className="font-semibold text-[#19231b]">PC (Win/Mac/Linux)</span>
+                      </div>
+                      <div className="text-right">
+                        <span className="font-mono font-bold text-[#19231b]">
+                          {deviceStatsData?.breakdown?.pc || 0}
+                        </span>
+                        <span className="text-[#5c7362] ml-1.5 text-[11px]">
+                          ({deviceStatsData?.percentages?.pc || 0}%)
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between p-2 rounded-xl bg-[#f7f9f6] border border-[#e2eae4]">
+                      <div className="flex items-center gap-2">
+                        <div className="w-3 h-3 rounded-full bg-[#94a3b8]" />
+                        <span className="font-semibold text-[#19231b]">Khác</span>
+                      </div>
+                      <div className="text-right">
+                        <span className="font-mono font-bold text-[#19231b]">
+                          {deviceStatsData?.breakdown?.other || 0}
+                        </span>
+                        <span className="text-[#5c7362] ml-1.5 text-[11px]">
+                          ({deviceStatsData?.percentages?.other || 0}%)
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-4 pt-3 border-t border-[#f0f3f1] text-[10px] text-[#7a8e80] leading-relaxed">
+                  🛡️ Phân loại ẩn danh từ nhãn User-Agent & Client Hints (iPadOS nhận diện qua touch points); không lưu trữ User-Agent thô hay IP.
+                </div>
+              </div>
+
+              {/* BẢNG XẾP HẠNG TOP POIS ĐƯỢC NGHE NHIỀU NHẤT */}
+              <div className="lg:col-span-2 bg-white rounded-3xl p-6 border border-[#e2eae4] shadow-xs space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-[#f0f3f1] gap-3">
+                  <div className="flex items-center gap-2">
+                    <Award className="w-5 h-5 text-amber-500" />
+                    <div>
+                      <h3 className="font-serif font-bold text-base sm:text-lg text-[#19231b]">
+                        Xếp Hạng Điểm Chiêm Bái Được Nghe Nhiều Nhất
+                      </h3>
+                      <p className="text-xs text-[#5c7362]">
+                        Lượt nghe thực tế đã phát $\ge$ 5 giây từ du khách
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Lọc theo ngôn ngữ */}
+                  <div className="flex items-center gap-1.5">
+                    <Languages className="w-4 h-4 text-[#5c7362]" />
+                    <select
+                      value={topPoiLangFilter}
+                      onChange={(e) => setTopPoiLangFilter(e.target.value)}
+                      className="px-3 py-1.5 rounded-xl bg-[#f7f9f6] border border-[#e2eae4] text-xs font-semibold text-[#19231b] outline-hidden focus:border-[#2d5a37]"
+                    >
+                      <option value="all">Tất cả ngôn ngữ</option>
+                      <option value="vi">Tiếng Việt (vi)</option>
+                      <option value="en">English (en)</option>
+                      <option value="zh">Tiếng Trung (zh)</option>
+                      <option value="ja">Tiếng Nhật (ja)</option>
+                      <option value="ko">Tiếng Hàn (ko)</option>
+                      <option value="fr">Tiếng Pháp (fr)</option>
+                      <option value="th">Tiếng Thái (th)</option>
+                      <option value="km">Tiếng Khmer (km)</option>
+                      <option value="my">Tiếng Myanmar (my)</option>
+                      <option value="lo">Tiếng Lào (lo)</option>
+                      <option value="hi">Tiếng Hindi (hi)</option>
+                      <option value="de">Tiếng Đức (de)</option>
+                    </select>
+                  </div>
+                </div>
+
+                {isLoadingStats ? (
+                  <div className="py-12 flex justify-center items-center text-xs text-[#5c7362]">
+                    <RefreshCw className="w-5 h-5 animate-spin text-[#2d5a37] mr-2" />
+                    <span>Đang tải bảng xếp hạng...</span>
+                  </div>
+                ) : !topPOIsData || !topPOIsData.items || topPOIsData.items.length === 0 ? (
+                  <div className="py-12 text-center text-xs text-[#5c7362]">
+                    Chưa có lượt nghe nào được ghi nhận cho bộ lọc này.
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead>
+                        <tr className="border-b border-[#f0f3f1] text-[#7a8e80] font-semibold">
+                          <th className="py-2.5 px-3 w-12 text-center">Hạng</th>
+                          <th className="py-2.5 px-3">Điểm Chiêm Bái</th>
+                          <th className="py-2.5 px-3 text-right">Lượt Nghe</th>
+                          <th className="py-2.5 px-3 text-right">Thiết Bị</th>
+                          <th className="py-2.5 px-3 text-right">Thời Lượng TB</th>
+                          <th className="py-2.5 px-3 w-28 text-center">Tỷ Lệ</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#f7f9f6]">
+                        {(() => {
+                          const maxTopListens = Math.max(
+                            ...topPOIsData.items.map((i: any) => i.listens || 0),
+                            1
+                          );
+
+                          return topPOIsData.items.map((item: any, idx: number) => {
+                            const pct = Math.round((item.listens / maxTopListens) * 100);
+                            const rankBadgeColor =
+                              idx === 0
+                                ? 'bg-amber-100 text-amber-800 border-amber-300 font-bold'
+                                : idx === 1
+                                ? 'bg-slate-200 text-slate-800 border-slate-300 font-bold'
+                                : idx === 2
+                                ? 'bg-orange-100 text-orange-800 border-orange-300 font-bold'
+                                : 'bg-[#f7f9f6] text-[#5c7362] border-[#e2eae4]';
+
+                            const dur = item.avgDurationSeconds || 0;
+                            const durStr = dur >= 60 ? `${Math.floor(dur / 60)}m ${dur % 60}s` : `${dur}s`;
+
+                            return (
+                              <tr key={item.poiId} className="hover:bg-[#f7f9f6]/70 transition-colors">
+                                <td className="py-3 px-3 text-center">
+                                  <span
+                                    className={`inline-block w-6 h-6 leading-6 text-[11px] rounded-full border ${rankBadgeColor}`}
+                                  >
+                                    #{idx + 1}
+                                  </span>
+                                </td>
+                                <td className="py-3 px-3">
+                                  <div className="font-semibold text-[#19231b]">{item.title}</div>
+                                  <div className="font-mono text-[10px] text-[#7a8e80]">{item.poiId}</div>
+                                </td>
+                                <td className="py-3 px-3 text-right font-mono font-bold text-[#2d5a37]">
+                                  {item.listens}
+                                </td>
+                                <td className="py-3 px-3 text-right font-mono text-[#19231b]">
+                                  {item.uniqueDevices}
+                                </td>
+                                <td className="py-3 px-3 text-right font-mono text-[#5c7362]">
+                                  {durStr}
+                                </td>
+                                <td className="py-3 px-3 text-center">
+                                  <div className="w-full bg-[#f0f3f1] rounded-full h-2 overflow-hidden">
+                                    <div
+                                      className="bg-[#2d5a37] h-full rounded-full transition-all duration-300"
+                                      style={{ width: `${pct}%` }}
+                                    />
+                                  </div>
+                                  <span className="text-[9px] font-mono text-[#7a8e80]">{pct}%</span>
+                                </td>
+                              </tr>
+                            );
+                          });
+                        })()}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* 5. KHỐI TRẠNG THÁI HẠ TẦNG (MONGODB, GEMINI AI, TTS SERVICE) */}
             <div className="bg-white rounded-3xl p-6 border border-[#e2eae4] shadow-xs space-y-4">
               <div className="flex items-center justify-between border-b border-[#f0f3f1] pb-3">
                 <div className="flex items-center gap-2">
                   <Server className="w-5 h-5 text-[#2d5a37]" />
                   <h3 className="font-serif font-bold text-base sm:text-lg text-[#19231b]">
-                    Khối 2: Trạng Thái Hạ Tầng & Dịch Vụ Hệ Thống
+                    Trạng Thái Hạ Tầng & Dịch Vụ Hệ Thống
                   </h3>
                 </div>
                 <span className="text-xs font-mono text-[#5c7362]">/api/health</span>
@@ -715,13 +1372,13 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
               </div>
             </div>
 
-            {/* KHỐI 3: DANH SÁCH ĐIỂM CHIÊM BÁI (TÊN, THỨ TỰ, AUDIO, MỨC PHỦ NGÔN NGỮ) */}
+            {/* 6. KHỐI DANH SÁCH ĐIỂM CHIÊM BÁI TÓM TẮT ({pois.length} POIs) */}
             <div className="bg-white rounded-3xl p-6 border border-[#e2eae4] shadow-xs space-y-4">
               <div className="flex items-center justify-between border-b border-[#f0f3f1] pb-3">
                 <div className="flex items-center gap-2">
                   <MapPin className="w-5 h-5 text-[#2d5a37]" />
                   <h3 className="font-serif font-bold text-base sm:text-lg text-[#19231b]">
-                    Khối 3: Danh Sách Điểm Chiêm Bái ({pois.length} POIs)
+                    Danh Sách Điểm Chiêm Bái ({pois.length} POIs)
                   </h3>
                 </div>
                 <button

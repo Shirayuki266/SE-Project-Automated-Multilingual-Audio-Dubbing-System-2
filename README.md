@@ -73,24 +73,24 @@ Du khách chỉ cần sử dụng điện thoại thông minh kết nối mạng
 
 ## 🏛️ Cổng Quản Trị Hệ Thống (Admin Portal)
 
-Giao diện Quản trị được thiết kế đồng bộ với phong cách thiền trà, thanh tịnh của ứng dụng du khách (`#f7f9f6`, viền bo tròn mềm mại, thẻ trắng trang nhã, điểm nhấn xanh lá `#2d5a37`), bao gồm **4 phân hệ cốt lõi**:
+Giao diện Quản trị được thiết kế đồng bộ với phong cách thiền trà, thanh tịnh của ứng dụng du khách (`#f7f9f6`, viền bo tròn mềm mại, thẻ trắng trang nhã, điểm nhấn xanh lá `#2d5a37`), bao gồm **3 phân hệ cốt lõi**:
 
-1. **📊 Dashboard (Tổng Quan Hoạt Động)**:
-   - Thống kê thời gian thực: Lượt khách chiêm bái hôm nay, số thiết bị thực tế, 8 điểm POIs, 12 ngôn ngữ.
-   - Giám sát sức khỏe hạ tầng: Web Speech API, Gemini AI Dịch thuật, Hệ thống Geofencing GPS.
+1. **📊 Dashboard Tổng Quan & Thống Kê Lưu Lượng (Hợp Nhất Toàn Diện)**:
+   - **Thẻ chỉ số thời gian thực**: Lượt khách chiêm bái hôm nay (1 máy = 1 lượt), 7 ngày gần nhất, tháng hiện hành, tổng lượt nghe POI ($\ge 5$s).
+   - **Lưu lượng theo Ngày & Tháng**: Biểu đồ cột SVG trực quan, chuyển đổi linh hoạt theo Ngày (Day) và Tháng (Month), điền số 0 cho ngày trống giúp biểu đồ luôn liên tục; hỗ trợ chọn nhanh 7 ngày, 30 ngày, 6 tháng hoặc khoảng ngày tùy chọn.
+   - **Phân loại thiết bị du khách**: Thống kê và vẽ biểu đồ Donut tỷ lệ phần trăm giữa iPhone (iOS, nhận diện cả iPadOS giả dạng macOS qua `maxTouchPoints`), Android, PC (Windows/macOS/Linux) và Khác.
+   - **Xếp hạng Top POI được nghe nhiều nhất**: Bảng xếp hạng điểm chiêm bái có lượt nghe thực tế ($\ge 5$ giây), số thiết bị unique nghe, thời lượng nghe trung bình, hỗ trợ lọc theo 12 ngôn ngữ.
+   - **Giám sát sức khỏe hạ tầng**: Trạng thái kết nối MongoDB Atlas (độ trễ ms, chỉ mục địa không gian `2dsphere`), Gemini AI Dịch thuật, TTS Engine.
+   - **Danh sách điểm chiêm bái tóm tắt**: 8 điểm POI kèm nút chuyển nhanh sang biên tập bài viết.
+   - **Cam kết quyền riêng tư (Privacy-First)**: Không lưu IP thô, không lưu chuỗi User-Agent, không lưu dấu vân tay thiết bị lâu dài. Bảng deduplication tạm tự hủy sau 24 giờ qua MongoDB TTL index; chỉ lưu các số đếm tổng hợp ẩn danh (`daily_stats`, `poi_listen_stats`).
 2. **📍 Quản Lý POIs (POIs Management)**:
-   - Danh sách thẻ công trình hiển thị ảnh thực tế, mã POI, tọa độ GPS, bán kính cảm biến.
-   - **Thêm điểm chiêm bái mới với 2 chế độ linh hoạt**:
-     - *Chế độ 1: Chọn trực quan trên bản đồ* (Nhấp chuột hoặc kéo thả ghim đỏ trên bản đồ chùa, xem trước vòng tròn Geofence, có nút lấy tọa độ GPS thực tế).
-     - *Chế độ 2: Nhập số liệu thủ công* (Kinh độ, Vĩ độ, Bán kính).
+   - Danh sách thẻ công trình hiển thị ảnh thực tế, mã POI, tọa độ GPS, bán kính cảm biến Geofence.
+   - Trình biên tập bài viết chuyên dụng (`POIArticlePopup.tsx`): Soạn thảo văn bản, upload ảnh thực tế lên máy chủ (JWT-protected), xuất mã QR điểm chiêm bái (`?poi=CODE`).
+   - Tích hợp dịch thuật tự động 12 ngôn ngữ chuẩn Phật học bằng Gemini AI và tái tạo file audio đơn lẻ.
 3. **🎙️ Quản Lý Audio & Cấu Hình Mặc Định**:
    - Cài đặt giọng đọc mặc định toàn ứng dụng cho khách tham quan mới.
-   - Trình nghe thử audio 8 điểm POI theo 12 thứ tiếng.
-   - **Thanh trạng thái và nút tắt âm thanh nổi bật**: Luôn hiển thị tên bài đang đọc trên Header và thanh nổi chân trang kèm nút bấm màu đỏ **"Tắt Audio"** tức thì.
-4. **📝 Quản Lý Bài Viết Ở POIs (Articles & Multilingual Editor)**:
-   - Trình soạn thảo văn bản thuyết minh chi tiết cho từng công trình.
-   - Chuyển đổi nhanh 12 thứ tiếng, đếm số từ và ước tính thời gian nghe.
-   - Nút **"✨ Dịch Bằng Gemini AI"** tự động chuyển ngữ bài viết chuẩn ngữ cảnh Phật giáo.
+   - Hỗ trợ 5 nấc tốc độ cố định (`0.7x, 1.0x, 1.25x, 1.5x, 2.5x`) bảo toàn cao độ giọng đọc tự nhiên (`preservesPitch = true`).
+   - Trình nghe thử audio 8 điểm POI theo 12 thứ tiếng kèm thanh trạng thái nổi và nút ngắt âm thanh khẩn cấp.
 
 > **Thông tin đăng nhập Admin**:
 > - Đường dẫn: Bấm vào biểu tượng **🔒** ở góc phải Header, hoặc qua URL `?admin=login`
