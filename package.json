@@ -11,6 +11,7 @@
     "test": "tsx test/backend.test.ts",
     "clean": "rm -rf dist server.js",
     "seed:mongo": "tsx scripts/seed-mongo.ts",
+    "cleanup:mongo": "tsx scripts/cleanup-mongo.ts",
     "lint": "tsc --noEmit"
   },
   "dependencies": {

@@ -184,13 +184,13 @@ router.get('/mongodb/status', async (_req, res) => {
 
 // =========================================================================
 // 2. DAILY VISITS & ACCESS (1 thiết bị = 1 người = tối đa 1 lượt/ngày)
+// Chỉ ghi nhận khi bấm nút "Bắt Đầu Chiêm Bái"
 // =========================================================================
 router.post('/visit/checkin', visitRateLimiter, async (req, res) => {
   try {
-    const { deviceId, maxTouchPoints } = req.body || {};
+    const { deviceId } = req.body || {};
     const userAgent = (req.headers['user-agent'] as string) || '';
-    const touchPoints = Number(maxTouchPoints) || 0;
-    const result = await dailyVisitService.recordVisit(deviceId || 'client-anon', userAgent, touchPoints);
+    const result = await dailyVisitService.recordVisit(deviceId || 'client-anon', userAgent);
     res.json({
       success: true,
       data: result,
@@ -215,16 +215,10 @@ router.get('/visit/today-count', async (_req, res) => {
   }
 });
 
-// Sự kiện nghe POI khi thời lượng phát đạt ngưỡng (≥ 5s)
-router.post('/visits/listen', visitRateLimiter, (req, res) => statsController.recordListen(req, res));
-router.post('/visit/listen', visitRateLimiter, (req, res) => statsController.recordListen(req, res));
-
 // =========================================================================
-// 2B. BẢNG THỐNG KÊ LƯU LƯỢNG & PHÂN TÍCH ADMIN (Yêu cầu JWT)
+// 2B. BẢNG THỐNG KÊ LƯU LƯỢNG & PHÂN TÍCH ADMIN (Trực tiếp từ 6 collections)
 // =========================================================================
 router.get('/admin/stats/visitors', requireAdmin, (req, res) => statsController.getVisitors(req, res));
-router.get('/admin/stats/devices', requireAdmin, (req, res) => statsController.getDevices(req, res));
-router.get('/admin/stats/poi-top', requireAdmin, (req, res) => statsController.getTopPOIs(req, res));
 router.get('/admin/stats/summary', requireAdmin, (req, res) => statsController.getSummary(req, res));
 
 // =========================================================================
@@ -346,6 +340,38 @@ router.post('/admin/remove-custom-audio', requireAdmin, (req, res) => {
       success: true,
       audioUrl: `/audio/${poiId}-${lang.toLowerCase()}.mp3`,
       message: 'Đã hủy file audio thủ công và khôi phục âm thanh TTS tự động.',
+    });
+  } catch (err: any) {
+    return res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// Xóa file âm thanh hiện tại (xóa file vật lý và set audio_url = null trong poi_translations)
+router.post('/admin/delete-audio', requireAdmin, (req, res) => {
+  const { poiId, lang } = req.body || {};
+  if (!poiId || !lang) {
+    return res.status(400).json({ success: false, error: 'Thiếu thông tin poiId hoặc lang.' });
+  }
+  try {
+    poiService.deleteAudio(poiId, lang);
+    return res.json({
+      success: true,
+      audioUrl: null,
+      message: `Đã xóa file âm thanh tiếng [${lang.toUpperCase()}] thành công.`,
+    });
+  } catch (err: any) {
+    return res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+router.delete('/pois/:id/translations/:lang/audio', requireAdmin, (req, res) => {
+  const { id, lang } = req.params;
+  try {
+    poiService.deleteAudio(id, lang);
+    return res.json({
+      success: true,
+      audioUrl: null,
+      message: `Đã xóa file âm thanh tiếng [${lang.toUpperCase()}] thành công.`,
     });
   } catch (err: any) {
     return res.status(400).json({ success: false, error: err.message });

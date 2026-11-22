@@ -121,38 +121,28 @@ async function seedMongoDBAtlas() {
     await mediaCol.insertMany(mediaDocs);
     console.log(`   ✓ Đã nạp ${mediaDocs.length} hình ảnh & tư liệu chiêm bái`);
 
-    // 6. Real Devices collection (QUẢN LÝ THIẾT BỊ ĐĂNG NHẬP / TRUY CẬP THỰC - TUYỆT ĐỐI KHÔNG TẠO ẢO)
-    console.log('\n📱 6. Khởi tạo Bảng MongoDB "real_devices" (Tạo bảng vật lý trực tiếp)...');
-    
-    // Kiểm tra xem bảng đã tồn tại trên Atlas chưa, nếu chưa thì gọi lệnh tạo bảng tường minh từ db hệ thống
-    const existingCollections = await db.listCollections({ name: 'real_devices' }).toArray();
-    if (existingCollections.length === 0) {
-      await db.createCollection('real_devices');
-      console.log('   ✓ Đã kích hoạt lệnh db.createCollection tạo bảng cứng vật lý trên Atlas');
-    }
+    // 6. Daily Visits collection (1 thiết bị = 1 người = tối đa 1 lượt/ngày, đúng 4 trường: _id, visitorHash, day, createdAt)
+    console.log('\n📊 6. Khởi tạo Collection "daily_visits" (Chuẩn 4 trường & TTL Index 24h)...');
+    const dailyVisitsCol = db.collection('daily_visits');
+    await dailyVisitsCol.createIndex({ day: 1, visitorHash: 1 }, { unique: true });
+    await dailyVisitsCol.createIndex({ createdAt: 1 }, { expireAfterSeconds: 86400 });
+    console.log('   ✓ Đã thiết lập chỉ mục kép chống trùng lặp (day + visitorHash) và TTL 24h tự hủy');
 
-    const realDevicesCol = db.collection('real_devices');
-    await realDevicesCol.createIndex({ device_id: 1 }, { unique: true });
-    await realDevicesCol.createIndex({ last_seen_at: -1 });
-    await realDevicesCol.createIndex({ role: 1 });
-    await realDevicesCol.createIndex({ status: 1 });
-    
-    const realDeviceCount = await realDevicesCol.countDocuments();
-    console.log(`   ✓ Bảng MongoDB "real_devices" đã sẵn sàng (chỉ mục device_id, last_seen_at, hiện có ${realDeviceCount} thiết bị thực).`);
-
-
-    // Ensure pilgrimage_logs is removed
+    // DỌN DẸP BẤT KỲ COLLECTION DƯ THỪA NÀO - CHỈ GIỮ ĐÚNG 6 COLLECTIONS CHUẨN
+    const ALLOWED = new Set(['campuses', 'pois', 'poi_translations', 'poi_media', 'admin_users', 'daily_visits']);
     const existingCols = await db.listCollections().toArray();
-    if (existingCols.some((c) => c.name === 'pilgrimage_logs')) {
-      await db.collection('pilgrimage_logs').drop();
-      console.log('   ✓ Đã dọn dẹp collection "pilgrimage_logs"');
+    for (const c of existingCols) {
+      if (!ALLOWED.has(c.name) && !c.name.startsWith('system.')) {
+        await db.collection(c.name).drop();
+        console.log(`   ✓ Đã dọn dẹp collection dư thừa: "${c.name}"`);
+      }
     }
 
     console.log('\n==========================================================');
     console.log('🎉 SEED DỮ LIỆU LÊN MONGODB ATLAS THÀNH CÔNG 100%!');
     console.log('   Database: ' + dbName);
-    console.log('   Tọa độ không gian: 2dsphere GeoJSON Point active');
-    console.log('   Bảng quản lý thiết bị thực: "real_devices" active');
+    console.log('   Chỉ giữ đúng 6 collections chuẩn:');
+    ALLOWED.forEach((col) => console.log(`   - ${col}`));
     console.log('==========================================================\n');
   } catch (err: any) {
     console.error('❌ Lỗi khi thao tác với MongoDB Atlas:', err.message);

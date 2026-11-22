@@ -1,20 +1,48 @@
 import { mongoManager } from './mongoClient.js';
 import { poiRepository } from './poiRepository.js';
-import {
-  DeviceType,
-  DailyStatsDocument,
-  POIListenStatsDocument,
-  POIDailyListenDocument,
-} from '../types.js';
+import { db } from './db.js';
+import { DailyVisitDocument, POITranslation, POIEntity, POIMedia, Campus } from '../types.js';
+
+export interface SummaryStatsResult {
+  todayVisits: number;
+  totalPois: number;
+  totalCampuses: number;
+  totalMedia: number;
+  translations: {
+    total: number;
+    audioReady: number;
+    audioMissing: number;
+    audioTts: number;
+    audioManual: number;
+  };
+  storageStatus: {
+    collectionsCount: number;
+    standardCollections: string[];
+  };
+}
+
+export interface VisitorStatsResult {
+  granularity: 'day' | 'month';
+  from: string;
+  to: string;
+  totalVisits: number;
+  items: Array<{
+    period: string; // 'YYYY-MM-DD' hoặc 'YYYY-MM'
+    visits: number;
+  }>;
+}
 
 export class StatsRepository {
-  // In-Memory Fallback stores when MongoDB is offline
-  private inMemoryDailyStats: Map<string, DailyStatsDocument> = new Map();
-  private inMemoryPoiListenStats: Map<string, POIListenStatsDocument> = new Map();
-  private inMemoryPoiDailyListens: Set<string> = new Set();
+  // In-Memory fallback store cho lượt khách chiêm bái theo ngày khi MongoDB offline
+  private inMemoryDailyVisits: Map<string, number> = new Map();
+
+  public recordInMemoryVisit(day: string): void {
+    const current = this.inMemoryDailyVisits.get(day) || 0;
+    this.inMemoryDailyVisits.set(day, current + 1);
+  }
 
   /**
-   * Helper: Tạo danh sách tất cả các ngày từ `from` đến `to` (YYYY-MM-DD)
+   * Helper: Tạo danh sách các ngày liên tục từ `from` đến `to` (YYYY-MM-DD)
    */
   public generateDateRange(from: string, to: string): string[] {
     const dates: string[] = [];
@@ -33,7 +61,7 @@ export class StatsRepository {
   }
 
   /**
-   * Helper: Tạo danh sách các tháng từ `from` đến `to` (YYYY-MM)
+   * Helper: Tạo danh sách các tháng liên tục từ `from` đến `to` (YYYY-MM)
    */
   public generateMonthRange(from: string, to: string): string[] {
     const months: string[] = [];
@@ -63,470 +91,167 @@ export class StatsRepository {
   }
 
   /**
-   * Ghi nhận lượt truy cập mới của thiết bị trong ngày (chỉ gọi khi visitorHash mới)
+   * Thống kê tổng hợp số liệu trực tiếp bằng countDocuments từ 6 collections chuẩn:
+   * 1. campuses, 2. pois, 3. poi_translations, 4. poi_media, 5. admin_users, 6. daily_visits
    */
-  public async recordDailyVisit(date: string, deviceType: DeviceType): Promise<void> {
-    const validDevice: DeviceType = ['iphone', 'android', 'pc', 'other'].includes(deviceType)
-      ? deviceType
-      : 'other';
+  public async getSummaryStats(today: string): Promise<SummaryStatsResult> {
+    const colVisits = mongoManager.getCollection<DailyVisitDocument>('daily_visits');
+    const colPois = mongoManager.getCollection<POIEntity>('pois');
+    const colTrans = mongoManager.getCollection<POITranslation>('poi_translations');
+    const colMedia = mongoManager.getCollection<POIMedia>('poi_media');
+    const colCampuses = mongoManager.getCollection<Campus>('campuses');
 
-    // 1. Cập nhật In-Memory
-    const existing = this.inMemoryDailyStats.get(date) || {
-      date,
-      uniqueDevices: 0,
-      device: { iphone: 0, android: 0, pc: 0, other: 0 },
+    let todayVisits = 0;
+    let totalPois = 0;
+    let totalCampuses = 0;
+    let totalMedia = 0;
+    let totalTrans = 0;
+    let audioReady = 0;
+    let audioTts = 0;
+    let audioManual = 0;
+
+    if (colVisits && colPois && colTrans) {
+      try {
+        [todayVisits, totalPois, totalCampuses, totalMedia, totalTrans] = await Promise.all([
+          colVisits.countDocuments({ day: today }),
+          colPois.countDocuments(),
+          colCampuses ? colCampuses.countDocuments() : 1,
+          colMedia ? colMedia.countDocuments() : 0,
+          colTrans.countDocuments(),
+        ]);
+
+        audioReady = await colTrans.countDocuments({
+          audio_url: { $exists: true, $nin: [null, ''] } as any,
+        });
+
+        audioManual = await colTrans.countDocuments({
+          $or: [
+            { audio_source: 'manual' },
+            { audio_url: { $regex: '^/audio/manual-' } },
+          ],
+        });
+
+        audioTts = Math.max(0, audioReady - audioManual);
+      } catch (err: any) {
+        console.warn('[StatsRepository] MongoDB summary count fallback:', err.message);
+      }
+    }
+
+    // Fallback qua Embedded Engine nếu MongoDB offline hoặc chưa nạp
+    if (totalPois === 0) {
+      const allPois = db.getAllPOIs();
+      totalPois = allPois.length;
+      totalCampuses = db.getAllCampuses().length;
+
+      let transList: POITranslation[] = [];
+      let mediaCount = 0;
+      allPois.forEach((p) => {
+        transList.push(...Object.values(p.translations || {}));
+        mediaCount += p.media?.length || 0;
+      });
+
+      totalMedia = mediaCount;
+      totalTrans = transList.length;
+      audioReady = transList.filter((t) => Boolean(t.audio_url)).length;
+      audioManual = transList.filter(
+        (t) => t.audio_source === 'manual' || (t.audio_url && t.audio_url.startsWith('/audio/manual-'))
+      ).length;
+      audioTts = Math.max(0, audioReady - audioManual);
+
+      const memVisits = this.inMemoryDailyVisits.get(today) || 0;
+      todayVisits = Math.max(todayVisits, memVisits);
+    }
+
+    return {
+      todayVisits,
+      totalPois,
+      totalCampuses,
+      totalMedia,
+      translations: {
+        total: totalTrans,
+        audioReady,
+        audioMissing: Math.max(0, totalTrans - audioReady),
+        audioTts,
+        audioManual,
+      },
+      storageStatus: {
+        collectionsCount: 6,
+        standardCollections: [
+          'campuses',
+          'pois',
+          'poi_translations',
+          'poi_media',
+          'admin_users',
+          'daily_visits',
+        ],
+      },
     };
-    existing.uniqueDevices += 1;
-    existing.device[validDevice] = (existing.device[validDevice] || 0) + 1;
-    this.inMemoryDailyStats.set(date, existing);
-
-    // 2. Cập nhật MongoDB nếu online
-    const col = mongoManager.getCollection<DailyStatsDocument>('daily_stats');
-    if (col) {
-      try {
-        await col.updateOne(
-          { date },
-          {
-            $inc: {
-              uniqueDevices: 1,
-              [`device.${validDevice}`]: 1,
-            },
-          },
-          { upsert: true }
-        );
-      } catch (err: any) {
-        console.warn('[StatsRepository] recordDailyVisit notice:', err.message);
-      }
-    }
   }
 
   /**
-   * Kiểm tra thiết bị này đã nghe POI này hôm nay chưa (dùng hash tạm 24h, không lưu định danh lâu dài)
-   */
-  public async checkAndRecordPoiUnique(
-    day: string,
-    poiId: string,
-    visitorHash: string
-  ): Promise<boolean> {
-    const memoryKey = `${day}:${poiId}:${visitorHash}`;
-    let isNewInMemory = false;
-    if (!this.inMemoryPoiDailyListens.has(memoryKey)) {
-      this.inMemoryPoiDailyListens.add(memoryKey);
-      isNewInMemory = true;
-    }
-
-    const col = mongoManager.getCollection<POIDailyListenDocument>('poi_daily_listens');
-    if (col) {
-      try {
-        const result = await col.updateOne(
-          { day, poiId, visitorHash },
-          {
-            $setOnInsert: {
-              day,
-              poiId,
-              visitorHash,
-              createdAt: new Date(),
-            },
-          },
-          { upsert: true }
-        );
-        return (result.upsertedCount ?? 0) > 0;
-      } catch (err: any) {
-        if (err.code === 11000) return false;
-        console.warn('[StatsRepository] checkAndRecordPoiUnique notice:', err.message);
-        return isNewInMemory;
-      }
-    }
-
-    return isNewInMemory;
-  }
-
-  /**
-   * Ghi nhận lượt nghe POI (tăng tổng lượt nghe và số thiết bị unique)
-   */
-  public async recordPoiListen(
-    date: string,
-    poiId: string,
-    lang: string,
-    isUniqueDevice: boolean,
-    durationSeconds: number = 0
-  ): Promise<void> {
-    const safeDuration = Math.max(0, Math.min(3600, Math.round(durationSeconds)));
-    const memoryKey = `${date}:${poiId}:${lang}`;
-
-    // 1. In-Memory
-    const existing = this.inMemoryPoiListenStats.get(memoryKey) || {
-      date,
-      poiId,
-      lang,
-      listens: 0,
-      uniqueDevices: 0,
-      totalDurationSeconds: 0,
-    };
-    existing.listens += 1;
-    if (isUniqueDevice) existing.uniqueDevices += 1;
-    existing.totalDurationSeconds = (existing.totalDurationSeconds || 0) + safeDuration;
-    this.inMemoryPoiListenStats.set(memoryKey, existing);
-
-    // 2. MongoDB
-    const col = mongoManager.getCollection<POIListenStatsDocument>('poi_listen_stats');
-    if (col) {
-      try {
-        await col.updateOne(
-          { date, poiId, lang },
-          {
-            $inc: {
-              listens: 1,
-              uniqueDevices: isUniqueDevice ? 1 : 0,
-              totalDurationSeconds: safeDuration,
-            },
-          },
-          { upsert: true }
-        );
-      } catch (err: any) {
-        console.warn('[StatsRepository] recordPoiListen notice:', err.message);
-      }
-    }
-  }
-
-  /**
-   * Thống kê lưu lượng du khách theo ngày hoặc tháng, điền 0 cho ngày/tháng trống
+   * Thống kê lượt khách chiêm bái theo khoảng thời gian trực tiếp từ `daily_visits`
+   * Bằng câu lệnh MongoDB aggregate `$match` + `$group` trên collection daily_visits
    */
   public async getVisitorStats(
     from: string,
     to: string,
     granularity: 'day' | 'month' = 'day'
-  ): Promise<{
-    granularity: 'day' | 'month';
-    from: string;
-    to: string;
-    totalUniqueDevices: number;
-    items: {
-      period: string;
-      uniqueDevices: number;
-      iphone: number;
-      android: number;
-      pc: number;
-      other: number;
-    }[];
-  }> {
-    let rawDocs: DailyStatsDocument[] = [];
-    const col = mongoManager.getCollection<DailyStatsDocument>('daily_stats');
+  ): Promise<VisitorStatsResult> {
+    const colVisits = mongoManager.getCollection<DailyVisitDocument>('daily_visits');
+    const countsMap = new Map<string, number>();
 
-    if (col) {
+    if (colVisits) {
       try {
-        rawDocs = await col
-          .find({ date: { $gte: from, $lte: to } })
-          .sort({ date: 1 })
-          .toArray();
+        const pipeline: any[] = [
+          { $match: { day: { $gte: from, $lte: to } } },
+          {
+            $group: {
+              _id: granularity === 'month' ? { $substr: ['$day', 0, 7] } : '$day',
+              count: { $sum: 1 },
+            },
+          },
+          { $sort: { _id: 1 } },
+        ];
+
+        const aggregated = await colVisits.aggregate(pipeline).toArray();
+        aggregated.forEach((item: any) => {
+          countsMap.set(String(item._id), Number(item.count) || 0);
+        });
       } catch (err: any) {
-        console.warn('[StatsRepository] getVisitorStats Mongo fallback to memory:', err.message);
+        console.warn('[StatsRepository] aggregate daily_visits notice:', err.message);
       }
     }
 
-    if (rawDocs.length === 0) {
-      // Fallback in-memory
-      for (const doc of this.inMemoryDailyStats.values()) {
-        if (doc.date >= from && doc.date <= to) {
-          rawDocs.push(doc);
-        }
+    // Trộn thêm In-Memory visits nếu có
+    for (const [day, count] of this.inMemoryDailyVisits.entries()) {
+      if (day >= from && day <= to) {
+        const key = granularity === 'month' ? day.slice(0, 7) : day;
+        countsMap.set(key, (countsMap.get(key) || 0) + count);
       }
     }
 
-    // Map doc theo date
-    const docMap = new Map<string, DailyStatsDocument>();
-    for (const d of rawDocs) {
-      docMap.set(d.date, d);
-    }
+    // Đảm bảo zero-filling liên tục cho mọi ngày/tháng trong khoảng
+    const periods =
+      granularity === 'month'
+        ? this.generateMonthRange(from, to)
+        : this.generateDateRange(from, to);
 
-    if (granularity === 'month') {
-      const monthRange = this.generateMonthRange(from, to);
-      const monthMap = new Map<
-        string,
-        { uniqueDevices: number; iphone: number; android: number; pc: number; other: number }
-      >();
-
-      for (const m of monthRange) {
-        monthMap.set(m, { uniqueDevices: 0, iphone: 0, android: 0, pc: 0, other: 0 });
-      }
-
-      for (const d of rawDocs) {
-        const m = d.date.slice(0, 7);
-        const cur = monthMap.get(m) || { uniqueDevices: 0, iphone: 0, android: 0, pc: 0, other: 0 };
-        cur.uniqueDevices += d.uniqueDevices || 0;
-        cur.iphone += d.device?.iphone || 0;
-        cur.android += d.device?.android || 0;
-        cur.pc += d.device?.pc || 0;
-        cur.other += d.device?.other || 0;
-        monthMap.set(m, cur);
-      }
-
-      let totalUniqueDevices = 0;
-      const items = monthRange.map((m) => {
-        const entry = monthMap.get(m)!;
-        totalUniqueDevices += entry.uniqueDevices;
-        return {
-          period: m,
-          uniqueDevices: entry.uniqueDevices,
-          iphone: entry.iphone,
-          android: entry.android,
-          pc: entry.pc,
-          other: entry.other,
-        };
-      });
-
+    let totalVisits = 0;
+    const items = periods.map((period) => {
+      const visits = countsMap.get(period) || 0;
+      totalVisits += visits;
       return {
-        granularity: 'month',
-        from,
-        to,
-        totalUniqueDevices,
-        items,
-      };
-    }
-
-    // Granularity === 'day'
-    const dateRange = this.generateDateRange(from, to);
-    let totalUniqueDevices = 0;
-
-    const items = dateRange.map((date) => {
-      const entry = docMap.get(date);
-      const uniqueDevices = entry?.uniqueDevices || 0;
-      totalUniqueDevices += uniqueDevices;
-      return {
-        period: date,
-        uniqueDevices,
-        iphone: entry?.device?.iphone || 0,
-        android: entry?.device?.android || 0,
-        pc: entry?.device?.pc || 0,
-        other: entry?.device?.other || 0,
+        period,
+        visits,
       };
     });
 
     return {
-      granularity: 'day',
+      granularity,
       from,
       to,
-      totalUniqueDevices,
+      totalVisits,
       items,
-    };
-  }
-
-  /**
-   * Thống kê phân loại thiết bị (iPhone, Android, PC, Khác) kèm tỷ lệ phần trăm
-   */
-  public async getDeviceStats(
-    from: string,
-    to: string
-  ): Promise<{
-    from: string;
-    to: string;
-    total: number;
-    breakdown: {
-      iphone: number;
-      android: number;
-      pc: number;
-      other: number;
-    };
-    percentages: {
-      iphone: number;
-      android: number;
-      pc: number;
-      other: number;
-    };
-  }> {
-    let rawDocs: DailyStatsDocument[] = [];
-    const col = mongoManager.getCollection<DailyStatsDocument>('daily_stats');
-
-    if (col) {
-      try {
-        rawDocs = await col.find({ date: { $gte: from, $lte: to } }).toArray();
-      } catch (err: any) {
-        console.warn('[StatsRepository] getDeviceStats fallback to memory:', err.message);
-      }
-    }
-
-    if (rawDocs.length === 0) {
-      for (const doc of this.inMemoryDailyStats.values()) {
-        if (doc.date >= from && doc.date <= to) {
-          rawDocs.push(doc);
-        }
-      }
-    }
-
-    const breakdown = { iphone: 0, android: 0, pc: 0, other: 0 };
-    for (const d of rawDocs) {
-      breakdown.iphone += d.device?.iphone || 0;
-      breakdown.android += d.device?.android || 0;
-      breakdown.pc += d.device?.pc || 0;
-      breakdown.other += d.device?.other || 0;
-    }
-
-    const total = breakdown.iphone + breakdown.android + breakdown.pc + breakdown.other;
-
-    const percentages = {
-      iphone: total > 0 ? Math.round((breakdown.iphone / total) * 1000) / 10 : 0,
-      android: total > 0 ? Math.round((breakdown.android / total) * 1000) / 10 : 0,
-      pc: total > 0 ? Math.round((breakdown.pc / total) * 1000) / 10 : 0,
-      other: total > 0 ? Math.round((breakdown.other / total) * 1000) / 10 : 0,
-    };
-
-    return {
-      from,
-      to,
-      total,
-      breakdown,
-      percentages,
-    };
-  }
-
-  /**
-   * Bảng xếp hạng Top POI được nghe nhiều nhất
-   */
-  public async getTopPOIs(
-    from: string,
-    to: string,
-    lang?: string,
-    limit: number = 10
-  ): Promise<{
-    from: string;
-    to: string;
-    lang: string;
-    items: {
-      poiId: string;
-      title: string;
-      listens: number;
-      uniqueDevices: number;
-      avgDurationSeconds: number;
-    }[];
-  }> {
-    const filter: Record<string, any> = {
-      date: { $gte: from, $lte: to },
-    };
-    if (lang && lang !== 'all') {
-      filter.lang = lang;
-    }
-
-    let rawDocs: POIListenStatsDocument[] = [];
-    const col = mongoManager.getCollection<POIListenStatsDocument>('poi_listen_stats');
-
-    if (col) {
-      try {
-        rawDocs = await col.find(filter).toArray();
-      } catch (err: any) {
-        console.warn('[StatsRepository] getTopPOIs fallback to memory:', err.message);
-      }
-    }
-
-    if (rawDocs.length === 0) {
-      for (const doc of this.inMemoryPoiListenStats.values()) {
-        const matchesDate = doc.date >= from && doc.date <= to;
-        const matchesLang = !lang || lang === 'all' || doc.lang === lang;
-        if (matchesDate && matchesLang) {
-          rawDocs.push(doc);
-        }
-      }
-    }
-
-    // Nhóm theo poiId
-    const poiAgg = new Map<
-      string,
-      { listens: number; uniqueDevices: number; totalDuration: number }
-    >();
-
-    for (const d of rawDocs) {
-      const cur = poiAgg.get(d.poiId) || { listens: 0, uniqueDevices: 0, totalDuration: 0 };
-      cur.listens += d.listens || 0;
-      cur.uniqueDevices += d.uniqueDevices || 0;
-      cur.totalDuration += d.totalDurationSeconds || 0;
-      poiAgg.set(d.poiId, cur);
-    }
-
-    // Lấy thông tin POI
-    const allPois = await poiRepository.findAll();
-    const poiTitleMap = new Map<string, string>();
-    for (const p of allPois) {
-      const title = p.translations?.['vi']?.title || p.currentTitle || p.code;
-      poiTitleMap.set(p.poi_id, title);
-      poiTitleMap.set(p.code, title);
-    }
-
-    const items = Array.from(poiAgg.entries())
-      .map(([poiId, stats]) => {
-        const title = poiTitleMap.get(poiId) || poiId;
-        const avgDurationSeconds =
-          stats.listens > 0 ? Math.round(stats.totalDuration / stats.listens) : 0;
-        return {
-          poiId,
-          title,
-          listens: stats.listens,
-          uniqueDevices: stats.uniqueDevices,
-          avgDurationSeconds,
-        };
-      })
-      .sort((a, b) => b.listens - a.listens)
-      .slice(0, Math.max(1, Math.min(100, limit)));
-
-    return {
-      from,
-      to,
-      lang: lang || 'all',
-      items,
-    };
-  }
-
-  /**
-   * Thống kê tổng hợp cho thẻ thông tin (Hôm nay, 7 ngày, tháng này, tổng lượt nghe)
-   */
-  public async getSummaryStats(todayDate: string): Promise<{
-    todayDevices: number;
-    sevenDaysDevices: number;
-    thisMonthDevices: number;
-    totalListens: number;
-    totalUniqueDevices: number;
-  }> {
-    const today = todayDate;
-    const sevenDaysAgoDate = new Date(today + 'T00:00:00Z');
-    sevenDaysAgoDate.setUTCDate(sevenDaysAgoDate.getUTCDate() - 6);
-    const sevenDaysAgo = sevenDaysAgoDate.toISOString().slice(0, 10);
-    const monthStart = today.slice(0, 7) + '-01';
-
-    const dayStats = await this.getVisitorStats('2026-01-01', today, 'day');
-
-    let todayDevices = 0;
-    let sevenDaysDevices = 0;
-    let thisMonthDevices = 0;
-    let totalUniqueDevices = 0;
-
-    for (const item of dayStats.items) {
-      if (item.period === today) todayDevices += item.uniqueDevices;
-      if (item.period >= sevenDaysAgo && item.period <= today) sevenDaysDevices += item.uniqueDevices;
-      if (item.period >= monthStart && item.period <= today) thisMonthDevices += item.uniqueDevices;
-      totalUniqueDevices += item.uniqueDevices;
-    }
-
-    // Tính tổng lượt nghe POI
-    let totalListens = 0;
-    const col = mongoManager.getCollection<POIListenStatsDocument>('poi_listen_stats');
-    if (col) {
-      try {
-        const allListens = await col.find({}).toArray();
-        for (const l of allListens) {
-          totalListens += l.listens || 0;
-        }
-      } catch {}
-    }
-    if (totalListens === 0) {
-      for (const l of this.inMemoryPoiListenStats.values()) {
-        totalListens += l.listens || 0;
-      }
-    }
-
-    return {
-      todayDevices: Math.max(todayDevices, 1),
-      sevenDaysDevices: Math.max(sevenDaysDevices, todayDevices),
-      thisMonthDevices: Math.max(thisMonthDevices, todayDevices),
-      totalListens,
-      totalUniqueDevices: Math.max(totalUniqueDevices, 1),
     };
   }
 }

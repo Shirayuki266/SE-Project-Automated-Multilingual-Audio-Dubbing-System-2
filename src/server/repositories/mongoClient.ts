@@ -30,23 +30,25 @@ export class MongoDatabaseManager {
         this.db = this.client.db(dbName);
         this.isConnectedToRemote = true;
 
-        // Ensure Core Indexes
+        // Dọn dẹp triệt để bất kỳ collection dư thừa nào - Hệ thống chỉ giữ đúng 6 collections chuẩn:
+        // 1. campuses, 2. pois, 3. poi_translations, 4. poi_media, 5. admin_users, 6. daily_visits
+        await this.cleanupExtraneousCollections();
+
+        // Ensure Core Indexes for exactly 6 collections
         await this.db.collection('pois').createIndex({ location: '2dsphere' }, { background: true });
         await this.db.collection('pois').createIndex({ code: 1 }, { unique: true });
         await this.db.collection('poi_translations').createIndex({ poi_id: 1, language_code: 1 }, { unique: true });
         
-        // Ensure daily_visits collection with compound unique index & TTL index
+        // Ensure daily_visits collection with compound unique index & TTL index 24h
         await this.db.collection('daily_visits').createIndex({ day: 1, visitorHash: 1 }, { unique: true });
-        // TTL index: MongoDB automatically drops documents after 86400 seconds (24h)
         await this.db.collection('daily_visits').createIndex({ createdAt: 1 }, { expireAfterSeconds: 86400 });
 
-        // Ensure aggregated stats collections (No personal identifiers stored)
-        await this.db.collection('daily_stats').createIndex({ date: 1 }, { unique: true });
-        await this.db.collection('poi_listen_stats').createIndex({ date: 1, poiId: 1, lang: 1 }, { unique: true });
-        await this.db.collection('poi_daily_listens').createIndex({ day: 1, poiId: 1, visitorHash: 1 }, { unique: true });
-        await this.db.collection('poi_daily_listens').createIndex({ createdAt: 1 }, { expireAfterSeconds: 86400 });
+        // Indexes for campuses, admin_users, poi_media
+        await this.db.collection('admin_users').createIndex({ username: 1 }, { unique: true });
+        await this.db.collection('campuses').createIndex({ campus_id: 1 }, { unique: true });
+        await this.db.collection('poi_media').createIndex({ poi_id: 1, display_order: 1 });
 
-        console.log(`[MongoDB] Connected successfully to "${dbName}". Indexes verified (2dsphere, unique compound, TTL 24h, stats).`);
+        console.log(`[MongoDB] Connected successfully to "${dbName}". Verified 6 standard collections & indexes (2dsphere, unique compound, TTL 24h).`);
         return true;
       } catch (err: any) {
         console.error(`[MongoDB] Connection failed: ${err.message}`);
@@ -57,6 +59,43 @@ export class MongoDatabaseManager {
     })();
 
     return this.initPromise;
+  }
+
+  public static readonly STANDARD_COLLECTIONS = [
+    'campuses',
+    'pois',
+    'poi_translations',
+    'poi_media',
+    'admin_users',
+    'daily_visits',
+  ] as const;
+
+  /**
+   * Dọn dẹp tất cả các collection dư thừa khỏi MongoDB database vietnam_quoc_tu.
+   * Chỉ giữ duy nhất đúng 6 collections chuẩn.
+   */
+  public async cleanupExtraneousCollections(): Promise<{ dropped: string[]; kept: string[] }> {
+    if (!this.db) return { dropped: [], kept: [] };
+    const allowed = new Set<string>(MongoDatabaseManager.STANDARD_COLLECTIONS);
+    const existing = await this.db.listCollections().toArray();
+    const dropped: string[] = [];
+    const kept: string[] = [];
+
+    for (const col of existing) {
+      if (col.name.startsWith('system.')) continue;
+      if (!allowed.has(col.name)) {
+        try {
+          await this.db.collection(col.name).drop();
+          console.log(`[MongoDB Cleanup] Dropped extraneous collection: "${col.name}"`);
+          dropped.push(col.name);
+        } catch (dropErr: any) {
+          console.warn(`[MongoDB Cleanup] Failed to drop "${col.name}":`, dropErr.message);
+        }
+      } else {
+        kept.push(col.name);
+      }
+    }
+    return { dropped, kept };
   }
 
   public getDb(): Db | null {

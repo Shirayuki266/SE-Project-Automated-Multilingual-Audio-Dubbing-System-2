@@ -328,6 +328,39 @@ export const POIArticlePopup: React.FC<POIArticlePopupProps> = ({
     }
   };
 
+  // Xóa tệp âm thanh hiện tại (xóa file vật lý và set audio_url = null)
+  const handleDeleteAudio = async () => {
+    if (!window.confirm(`Quý vị có chắc chắn muốn xóa tệp âm thanh tiếng [${selectedLang.toUpperCase()}]? Tệp vật lý trên máy chủ sẽ bị xóa và trường audio_url sẽ được đặt thành null.`)) return;
+    try {
+      if (directAudioElementRef.current) {
+        directAudioElementRef.current.pause();
+        directAudioElementRef.current = null;
+        setIsPlayingDirectAudio(false);
+      }
+      speechEngine.stop();
+      setIsPlayingAudio(false);
+
+      const res = await fetch('/api/admin/delete-audio', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({
+          poiId: poi.poi_id,
+          lang: selectedLang,
+        }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error);
+
+      onShowNotify(`Đã xóa tệp âm thanh tiếng [${selectedLang.toUpperCase()}] thành công.`);
+      onRefreshPOIs();
+    } catch (err: any) {
+      alert('Lỗi khi xóa file âm thanh: ' + err.message);
+    }
+  };
+
   // Phát thử trực tiếp file audio thủ công vừa tải lên
   const handleToggleDirectAudio = (url: string) => {
     if (isPlayingDirectAudio && directAudioElementRef.current) {
@@ -669,38 +702,61 @@ export const POIArticlePopup: React.FC<POIArticlePopupProps> = ({
                   </button>
 
                   {/* If custom audio is uploaded, offer Direct Play & Remove Custom Audio buttons */}
-                  {poi.translations[selectedLang]?.audio_url?.startsWith('/audio/manual-') && (
+                  {poi.translations[selectedLang]?.audio_url && (
                     <>
                       <button
                         type="button"
                         onClick={() => handleToggleDirectAudio(poi.translations[selectedLang]!.audio_url!)}
                         className="px-3 py-1.5 rounded-xl bg-blue-50 border border-blue-200 text-blue-700 hover:bg-blue-100 text-xs font-bold flex items-center gap-1.5 transition-colors"
-                        title="Nghe trực tiếp file MP3 vừa tải lên"
+                        title="Nghe trực tiếp tệp âm thanh hiện tại"
                       >
                         {isPlayingDirectAudio ? <Square className="w-3.5 h-3.5 fill-current" /> : <Play className="w-3.5 h-3.5 fill-current" />}
-                        <span>{isPlayingDirectAudio ? 'Dừng file MP3' : 'Nghe file MP3 đã tải'}</span>
+                        <span>{isPlayingDirectAudio ? 'Dừng phát' : 'Nghe trực tiếp'}</span>
                       </button>
+
+                      {poi.translations[selectedLang]?.audio_url?.startsWith('/audio/manual-') && (
+                        <button
+                          type="button"
+                          onClick={handleRemoveCustomAudio}
+                          className="px-2.5 py-1.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 hover:bg-amber-100 text-xs font-semibold flex items-center gap-1 transition-colors"
+                          title="Hủy file tải lên thủ công để trở về sử dụng giọng đọc AI TTS tự động"
+                        >
+                          <RotateCcw className="w-3 h-3" />
+                          <span>Về lại TTS</span>
+                        </button>
+                      )}
 
                       <button
                         type="button"
-                        onClick={handleRemoveCustomAudio}
+                        onClick={handleDeleteAudio}
                         className="px-2.5 py-1.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 hover:bg-rose-100 text-xs font-semibold flex items-center gap-1 transition-colors"
-                        title="Hủy file tải lên thủ công để trở về sử dụng giọng đọc AI TTS tự động"
+                        title="Xóa tệp âm thanh vật lý trên server và đặt audio_url = null"
                       >
                         <Trash2 className="w-3 h-3" />
-                        <span>Hủy file thủ công</span>
+                        <span>Xóa Audio</span>
                       </button>
                     </>
                   )}
                 </div>
 
-                <div className="text-[10px] text-[#7a8e80]">
+                <div className="flex items-center gap-2">
                   {poi.translations[selectedLang]?.audio_url ? (
-                    <span className="font-mono truncate max-w-[200px] inline-block" title={poi.translations[selectedLang]?.audio_url}>
-                      {poi.translations[selectedLang]?.audio_url?.split('/').pop()}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      {poi.translations[selectedLang]?.audio_source === 'manual' || poi.translations[selectedLang]?.audio_url?.startsWith('/audio/manual-') ? (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-900 border border-purple-300">
+                          🎙️ Upload Phòng Thu
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-900 border border-emerald-300">
+                          🤖 TTS Tự Động
+                        </span>
+                      )}
+                      <span className="font-mono text-[10px] text-[#7a8e80] truncate max-w-[150px]" title={poi.translations[selectedLang]?.audio_url || ''}>
+                        {poi.translations[selectedLang]?.audio_url?.split('/').pop()}
+                      </span>
+                    </div>
                   ) : (
-                    <span>Chưa có tệp âm thanh</span>
+                    <span className="text-[10px] text-[#7a8e80] italic">Chưa có tệp âm thanh</span>
                   )}
                 </div>
               </div>

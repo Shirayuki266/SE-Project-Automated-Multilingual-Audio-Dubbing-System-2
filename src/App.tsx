@@ -244,26 +244,6 @@ export default function App() {
     fetchPOIs();
     fetchVisitorStats();
     fetchDefaultVoice();
-
-    // Check in device fingerprint for strict daily deduplication (1 máy = 1 người = 1 lượt/ngày)
-    getBrowserFingerprint().then((fp) => {
-      fetch('/api/visit/checkin', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          deviceId: fp,
-          maxTouchPoints: typeof navigator !== 'undefined' ? (navigator.maxTouchPoints || 0) : 0,
-        }),
-      })
-        .then((r) => r.json())
-        .then((res) => {
-          if (res.success && res.data) {
-            setTodayStartsCount(res.data.todayUniqueVisitors || 1);
-            setUniquePilgrimsCount(res.data.todayUniqueVisitors || 1);
-          }
-        })
-        .catch(() => {});
-    });
   }, []);
 
   // Lắng nghe sự kiện Online / Offline của trình duyệt để tự cập nhật trạng thái kết nối
@@ -319,29 +299,6 @@ export default function App() {
       if (state.status) setAudioStatus(state.status);
       setAudioStatusMessage(state.statusMessage);
       setAutoplayBlocked(Boolean(state.autoplayBlocked));
-
-      // Báo cáo sự kiện nghe POI khi thời lượng phát đạt ngưỡng (≥ 5s)
-      if (
-        state.isSpeaking &&
-        state.currentPoiId &&
-        state.elapsedSeconds >= 5 &&
-        !reportedPoiListensRef.current.has(state.currentPoiId)
-      ) {
-        reportedPoiListensRef.current.add(state.currentPoiId);
-        getBrowserFingerprint().then((fp) => {
-          fetch('/api/visits/listen', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              poiId: state.currentPoiId,
-              lang: currentLang,
-              deviceId: fp,
-              maxTouchPoints: typeof navigator !== 'undefined' ? (navigator.maxTouchPoints || 0) : 0,
-              duration: state.elapsedSeconds,
-            }),
-          }).catch(() => {});
-        });
-      }
     });
 
     return () => {

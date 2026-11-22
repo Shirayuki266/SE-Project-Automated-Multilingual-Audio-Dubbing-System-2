@@ -202,14 +202,43 @@ export class POIService {
     if (!currentTrans) {
       throw new Error(`Bản dịch tiếng [${lang.toUpperCase()}] chưa được khởi tạo. Vui lòng nhập tiêu đề & nội dung trước.`);
     }
-    // Clean old manual audio if different
-    if (currentTrans.audio_url && currentTrans.audio_url.startsWith('/audio/manual-') && currentTrans.audio_url !== audioUrl) {
-      fileStorageService.deleteUploadedAudio(currentTrans.audio_url);
+    // Clean old audio file if different
+    if (currentTrans.audio_url && currentTrans.audio_url !== audioUrl) {
+      fileStorageService.deleteAudioFile(currentTrans.audio_url);
     }
-    const updatedTrans = {
+    const updatedTrans: any = {
       ...currentTrans,
       audio_url: audioUrl,
+      audio_source: 'manual',
       is_manually_edited: true,
+      audio_updated_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    poiRepository.saveTranslation(updatedTrans);
+    return poiRepository.findById(poiId);
+  }
+
+  /**
+   * Xóa file âm thanh hiện tại: xóa file vật lý trên server và cập nhật audio_url = null
+   */
+  public deleteAudio(poiId: string, lang: string) {
+    const existing = poiRepository.findById(poiId);
+    if (!existing) {
+      throw new Error(`Không tìm thấy điểm POI với mã "${poiId}".`);
+    }
+    const currentTrans = existing.translations[lang.toLowerCase()];
+    if (!currentTrans) {
+      throw new Error(`Không tìm thấy bản dịch tiếng [${lang.toUpperCase()}].`);
+    }
+
+    if (currentTrans.audio_url) {
+      fileStorageService.deleteAudioFile(currentTrans.audio_url);
+    }
+
+    const updatedTrans: any = {
+      ...currentTrans,
+      audio_url: null,
+      audio_source: null,
       audio_updated_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
@@ -226,13 +255,14 @@ export class POIService {
     if (!currentTrans) {
       throw new Error(`Không tìm thấy bản dịch.`);
     }
-    if (currentTrans.audio_url && currentTrans.audio_url.startsWith('/audio/manual-')) {
-      fileStorageService.deleteUploadedAudio(currentTrans.audio_url);
+    if (currentTrans.audio_url) {
+      fileStorageService.deleteAudioFile(currentTrans.audio_url);
     }
     // Revert back to standard cached TTS audio path
-    const updatedTrans = {
+    const updatedTrans: any = {
       ...currentTrans,
       audio_url: `/audio/${poiId}-${lang.toLowerCase()}.mp3`,
+      audio_source: 'tts',
       audio_updated_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };

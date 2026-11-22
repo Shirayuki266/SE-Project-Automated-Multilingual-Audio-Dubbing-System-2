@@ -16,39 +16,14 @@ export const WelcomeModal: React.FC<WelcomeModalProps> = ({
   onStartPilgrimage,
 }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [deviceStatus, setDeviceStatus] = useState<{
-    isNewToday?: boolean;
-    accessCountToday?: number;
-    message?: string;
-  } | null>(null);
   const t = translations[currentLang];
-
-  // Device Fingerprint Checking (Chỉ ghi nhận 1 thiết bị truy cập/ngày)
-  React.useEffect(() => {
-    getBrowserFingerprint().then((fp) => {
-      fetch('/api/visit/checkin', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ deviceId: fp }),
-      })
-        .then((r) => r.json())
-        .then((res) => {
-          if (res.success && res.data) {
-            setDeviceStatus({
-              isNewToday: res.data.isNewToday,
-              message: res.data.message,
-            });
-          }
-        })
-        .catch(() => {});
-    });
-  }, [currentLang]);
 
   const handleStart = async () => {
     // Prime and pre-authorize Mobile Audio Hardware Session on explicit user gesture
     speechEngine.primeAutoplay();
     setIsSubmitting(true);
     try {
+      // Chỉ ghi nhận vào daily_visits khi du khách bấm nút "Bắt Đầu Chiêm Bái"
       const fingerprintHash = await getBrowserFingerprint();
       await fetch('/api/visit/checkin', {
         method: 'POST',
@@ -58,7 +33,7 @@ export const WelcomeModal: React.FC<WelcomeModalProps> = ({
         }),
       });
     } catch (err) {
-      console.warn('Analytics log notice:', err);
+      console.warn('Daily visit checkin notice:', err);
     } finally {
       setIsSubmitting(false);
       onStartPilgrimage();
@@ -119,16 +94,12 @@ export const WelcomeModal: React.FC<WelcomeModalProps> = ({
         </div>
 
         {/* Device Fingerprint Verification Badge */}
-        {deviceStatus && (
-          <div className="p-2.5 rounded-2xl bg-[#eef5f0] border border-[#d6e7da] text-[11px] text-[#1e3d25] flex items-center justify-center gap-2 shadow-2xs">
-            <span className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse flex-shrink-0" />
-            <span className="font-medium truncate">
-              {deviceStatus.isNewToday
-                ? 'Thiết bị mới: Đã xác thực 1 lượt trong ngày'
-                : `Thiết bị đã ghi nhận hôm nay (Lần thứ ${deviceStatus.accessCountToday || 1} - không tính trùng)`}
-            </span>
-          </div>
-        )}
+        <div className="p-2.5 rounded-2xl bg-[#eef5f0] border border-[#d6e7da] text-[11px] text-[#1e3d25] flex items-center justify-center gap-2 shadow-2xs">
+          <span className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse flex-shrink-0" />
+          <span className="font-medium truncate">
+            Xác thực bảo mật ẩn danh • 1 thiết bị = 1 lượt/ngày
+          </span>
+        </div>
 
         {/* Sole Primary Action Button */}
         <div className="pt-2 space-y-3">

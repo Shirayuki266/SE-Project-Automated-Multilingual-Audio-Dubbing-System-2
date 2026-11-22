@@ -49,17 +49,24 @@ export class FileStorageService {
   /**
    * Xóa file audio MP3 thủ công trong thư mục audio khi đổi audio hoặc xóa bản dịch
    */
-  public deleteUploadedAudio(audioUrl?: string): void {
-    if (!audioUrl || !audioUrl.startsWith('/audio/manual-')) return;
+  public deleteUploadedAudio(audioUrl?: string | null): void {
+    this.deleteAudioFile(audioUrl);
+  }
+
+  /**
+   * Xóa bất kỳ file audio vật lý nào trong thư mục public/audio khi Admin xóa audio hoặc cập nhật
+   */
+  public deleteAudioFile(audioUrl?: string | null): void {
+    if (!audioUrl || typeof audioUrl !== 'string' || !audioUrl.startsWith('/audio/')) return;
     try {
-      const filename = path.basename(audioUrl);
+      const filename = path.basename(audioUrl.split('?')[0]);
       const filePath = path.join(AUDIO_DIR, filename);
       if (fs.existsSync(filePath)) {
         fs.unlinkSync(filePath);
-        console.log(`[FileStorage] Cleaned old POI manual audio: ${filename}`);
+        console.log(`[FileStorage] Cleaned audio file: ${filename}`);
       }
     } catch (err: any) {
-      console.warn('[FileStorage] Failed to delete manual audio:', err.message);
+      console.warn('[FileStorage] Failed to delete audio file:', err.message);
     }
   }
 }

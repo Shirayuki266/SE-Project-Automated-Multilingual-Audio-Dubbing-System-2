@@ -53,24 +53,6 @@ class StatsService {
     return statsRepository.getVisitorStats(from, to, granularity);
   }
 
-  public async getDeviceStats(rawFrom?: string, rawTo?: string) {
-    const { from, to } = this.sanitizeDateRange(rawFrom, rawTo, 30);
-    return statsRepository.getDeviceStats(from, to);
-  }
-
-  public async getTopPOIs(
-    rawFrom?: string,
-    rawTo?: string,
-    lang?: string,
-    rawLimit?: number | string
-  ) {
-    const { from, to } = this.sanitizeDateRange(rawFrom, rawTo, 30);
-    const limit = Math.max(1, Math.min(50, Number(rawLimit) || 10));
-    const safeLang = typeof lang === 'string' ? lang.trim() : 'all';
-
-    return statsRepository.getTopPOIs(from, to, safeLang, limit);
-  }
-
   public async getSummary() {
     const today = dailyVisitService.getVietnamDateString();
     return statsRepository.getSummaryStats(today);

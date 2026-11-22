@@ -97,7 +97,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   // Active Tabs: 3 Main Tabs (Dashboard & Thống kê lưu lượng là 1, POIs, Audio Settings)
   const [activeTab, setActiveTab] = useState<'dashboard' | 'pois' | 'audio'>('dashboard');
 
-  // Analytics & Stats State
+  // Analytics & Stats State (Được tính toán trực tiếp từ 6 collections chuẩn)
   const [statsSummary, setStatsSummary] = useState<any>(null);
   const [visitorGranularity, setVisitorGranularity] = useState<'day' | 'month'>('day');
   const [statsDateFrom, setStatsDateFrom] = useState<string>(() => {
@@ -109,12 +109,22 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' });
   });
   const [visitorStatsData, setVisitorStatsData] = useState<any>(null);
-  const [deviceStatsData, setDeviceStatsData] = useState<any>(null);
-  const [topPOIsData, setTopPOIsData] = useState<any>(null);
-  const [topPoiLangFilter, setTopPoiLangFilter] = useState<string>('all');
   const [isLoadingStats, setIsLoadingStats] = useState(false);
   const [statsError, setStatsError] = useState<string | null>(null);
   const [hoveredBarIndex, setHoveredBarIndex] = useState<number | null>(null);
+
+  // Phân hệ Quản Lý Audio State
+  const [audioFilterPoiId, setAudioFilterPoiId] = useState<string>('all');
+  const [audioFilterLang, setAudioFilterLang] = useState<string>('all');
+  const [playingAudioKey, setPlayingAudioKey] = useState<string | null>(null);
+  const [audioCurrentTime, setAudioCurrentTime] = useState<number>(0);
+  const [audioDuration, setAudioDuration] = useState<number>(0);
+  const [uploadingAudioTarget, setUploadingAudioTarget] = useState<{ poiId: string; lang: string } | null>(null);
+  const [regeneratingAudioTarget, setRegeneratingAudioTarget] = useState<{ poiId: string; lang: string } | null>(null);
+  const [deletingAudioTarget, setDeletingAudioTarget] = useState<{ poiId: string; lang: string } | null>(null);
+  const audioManagerPlayerRef = useRef<HTMLAudioElement | null>(null);
+  const audioUploadInputRef = useRef<HTMLInputElement | null>(null);
+  const currentUploadPoiLangRef = useRef<{ poiId: string; lang: string } | null>(null);
 
   // Popup "Xem/Sửa bài viết" State
   const [articlePopupPoi, setArticlePopupPoi] = useState<RichPOI | null>(null);
@@ -211,37 +221,28 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     }
   };
 
-  // Fetch Analytics & Stats Data
+  // Fetch Analytics & Stats Data (Chỉ từ 6 collections)
   const fetchStatsData = async () => {
     if (!authToken) return;
     setIsLoadingStats(true);
     setStatsError(null);
     try {
       const headers = { Authorization: `Bearer ${authToken}` };
-      const [sumRes, visRes, devRes, topRes] = await Promise.all([
+      const [sumRes, visRes] = await Promise.all([
         fetch('/api/admin/stats/summary', { headers }),
         fetch(
           `/api/admin/stats/visitors?granularity=${visitorGranularity}&from=${statsDateFrom}&to=${statsDateTo}`,
           { headers }
         ),
-        fetch(`/api/admin/stats/devices?from=${statsDateFrom}&to=${statsDateTo}`, { headers }),
-        fetch(
-          `/api/admin/stats/poi-top?from=${statsDateFrom}&to=${statsDateTo}&lang=${topPoiLangFilter}&limit=10`,
-          { headers }
-        ),
       ]);
 
-      const [sumData, visData, devData, topData] = await Promise.all([
+      const [sumData, visData] = await Promise.all([
         sumRes.json(),
         visRes.json(),
-        devRes.json(),
-        topRes.json(),
       ]);
 
       if (sumData.success) setStatsSummary(sumData.data);
       if (visData.success) setVisitorStatsData(visData.data);
-      if (devData.success) setDeviceStatsData(devData.data);
-      if (topData.success) setTopPOIsData(topData.data);
     } catch (err: any) {
       setStatsError(err.message || 'Không thể tải dữ liệu thống kê');
     } finally {
@@ -254,7 +255,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       fetchDashboardMetrics();
       fetchStatsData();
     }
-  }, [authToken, activeTab, visitorGranularity, statsDateFrom, statsDateTo, topPoiLangFilter]);
+  }, [authToken, activeTab, visitorGranularity, statsDateFrom, statsDateTo]);
 
   // Generate QR when modal opens
   useEffect(() => {
@@ -548,6 +549,149 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     img.src = qrDataUrl;
   };
 
+  // =========================================================================
+  // AUDIO MANAGEMENT HANDLERS (PHÂN HỆ QUẢN LÝ AUDIO)
+  // =========================================================================
+  const handleTogglePlayAudio = (url: string, key: string) => {
+    if (playingAudioKey === key && audioManagerPlayerRef.current) {
+      audioManagerPlayerRef.current.pause();
+      setPlayingAudioKey(null);
+      return;
+    }
+
+    if (audioManagerPlayerRef.current) {
+      audioManagerPlayerRef.current.pause();
+      audioManagerPlayerRef.current = null;
+    }
+
+    const audio = new Audio(url);
+    audioManagerPlayerRef.current = audio;
+
+    audio.ontimeupdate = () => {
+      setAudioCurrentTime(audio.currentTime);
+      setAudioDuration(audio.duration || 0);
+    };
+
+    audio.onloadedmetadata = () => {
+      setAudioDuration(audio.duration || 0);
+    };
+
+    audio.onended = () => {
+      setPlayingAudioKey(null);
+      setAudioCurrentTime(0);
+    };
+
+    audio.onerror = () => {
+      setPlayingAudioKey(null);
+      alert('Không thể phát file âm thanh này (Tệp không tồn tại hoặc lỗi định dạng).');
+    };
+
+    audio.play().then(() => {
+      setPlayingAudioKey(key);
+    }).catch((e) => {
+      console.warn('Audio play error:', e);
+      setPlayingAudioKey(null);
+    });
+  };
+
+  const handleTriggerUploadAudio = (poiId: string, lang: string) => {
+    currentUploadPoiLangRef.current = { poiId, lang };
+    if (audioUploadInputRef.current) {
+      audioUploadInputRef.current.value = '';
+      audioUploadInputRef.current.click();
+    }
+  };
+
+  const handleAudioFileInputChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    const target = currentUploadPoiLangRef.current;
+    if (!file || !target) return;
+
+    if (file.size > 20 * 1024 * 1024) {
+      alert('Kích thước tệp âm thanh vượt quá 20MB theo quy định BR10-3. Vui lòng chọn tệp nhỏ hơn 20MB.');
+      return;
+    }
+
+    setUploadingAudioTarget(target);
+    const formData = new FormData();
+    formData.append('audio', file);
+    formData.append('poiId', target.poiId);
+    formData.append('lang', target.lang);
+
+    try {
+      const res = await fetch('/api/admin/upload-audio', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+        },
+        body: formData,
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error);
+
+      showNotify(`Đã tải lên tệp âm thanh phòng thu cho tiếng [${target.lang.toUpperCase()}] thành công!`);
+      onRefreshPOIs();
+    } catch (err: any) {
+      alert('Lỗi tải file âm thanh: ' + err.message);
+    } finally {
+      setUploadingAudioTarget(null);
+      currentUploadPoiLangRef.current = null;
+    }
+  };
+
+  const handleRegenerateAudio = async (poiId: string, lang: string) => {
+    setRegeneratingAudioTarget({ poiId, lang });
+    try {
+      const res = await fetch(`/api/pois/${poiId}/translations/${lang}/regenerate-audio`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+        },
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || data.message);
+
+      showNotify(`Đã sinh lại âm thanh TTS cho tiếng [${lang.toUpperCase()}] thành công!`);
+      onRefreshPOIs();
+    } catch (err: any) {
+      alert('Lỗi khi sinh âm thanh TTS: ' + err.message);
+    } finally {
+      setRegeneratingAudioTarget(null);
+    }
+  };
+
+  const handleDeleteAudioFile = async (poiId: string, lang: string) => {
+    if (!window.confirm(`Quý vị có chắc chắn muốn xóa tệp âm thanh tiếng [${lang.toUpperCase()}] của điểm chiêm bái này?\nTệp vật lý trên máy chủ sẽ bị xóa và trường audio_url sẽ được đặt thành null.`)) {
+      return;
+    }
+
+    setDeletingAudioTarget({ poiId, lang });
+    try {
+      if (playingAudioKey === `${poiId}-${lang}` && audioManagerPlayerRef.current) {
+        audioManagerPlayerRef.current.pause();
+        setPlayingAudioKey(null);
+      }
+
+      const res = await fetch('/api/admin/delete-audio', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({ poiId, lang }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error);
+
+      showNotify(`Đã xóa tệp âm thanh tiếng [${lang.toUpperCase()}] thành công.`);
+      onRefreshPOIs();
+    } catch (err: any) {
+      alert('Lỗi khi xóa file âm thanh: ' + err.message);
+    } finally {
+      setDeletingAudioTarget(null);
+    }
+  };
+
   // If not logged in, render dedicated secure Admin login screen
   if (!authToken) {
     return (
@@ -629,6 +773,13 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       )}
 
       {/* Top Admin Navbar */}
+      <input
+        ref={audioUploadInputRef}
+        type="file"
+        accept="audio/mpeg,audio/mp3,audio/wav,audio/ogg,audio/m4a,audio/*"
+        className="hidden"
+        onChange={handleAudioFileInputChange}
+      />
       <header className="bg-white border-b border-[#e2eae4] px-4 sm:px-6 py-3 flex items-center justify-between flex-shrink-0 z-20">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-2xl bg-[#2d5a37] text-white flex items-center justify-center font-bold text-xs shadow-xs">
@@ -706,7 +857,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
           }`}
         >
           <Mic className="w-3.5 h-3.5" />
-          <span>3. Cấu Hình Giọng Đọc</span>
+          <span>3. Quản Lý Audio & Giọng Đọc</span>
         </button>
       </div>
 
@@ -841,66 +992,95 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
               </div>
             )}
 
-            {/* 2. KHỐI 3 THẺ TỔNG QUAN CHỈ SỐ */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              {/* Thẻ 1: Hôm nay */}
+            {/* 2. KHỐI 4 THẺ TỔNG QUAN CHỈ SỐ (TRỰC TIẾP TỪ 6 COLLECTIONS CHUẨN) */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {/* Thẻ 1: Khách Chiêm Bái Hôm Nay (daily_visits) */}
               <div className="p-5 rounded-3xl bg-gradient-to-br from-[#2d5a37] to-[#1e3d25] text-white shadow-xs space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-xs uppercase tracking-wider font-semibold text-emerald-200 flex items-center gap-1.5">
                     <Activity className="w-4 h-4 text-emerald-300" />
-                    <span>Hôm Nay (Thực)</span>
+                    <span>Khách Hôm Nay</span>
                   </span>
-                  <span className="text-[10px] bg-emerald-500/30 text-emerald-200 px-2 py-0.5 rounded-full font-mono">
-                    1 máy = 1 lượt
+                  <span className="text-[10px] bg-emerald-500/30 text-emerald-200 px-2 py-0.5 rounded-full font-mono font-bold">
+                    daily_visits
                   </span>
                 </div>
                 <div className="text-2xl sm:text-3xl font-serif font-bold">
-                  {todayVisitors} <span className="text-xs font-normal font-sans text-emerald-100">khách hành hương</span>
+                  {statsSummary?.todayVisits ?? todayVisitors}{' '}
+                  <span className="text-xs font-normal font-sans text-emerald-100">lượt khách</span>
                 </div>
                 <p className="text-[11px] text-emerald-200/90 leading-tight">
-                  Chống spam: HMAC-SHA256 lưu tạm 24h trên MongoDB và tự hủy bằng TTL Index.
+                  Chỉ ghi nhận khi bấm "Bắt Đầu Chiêm Bái". Chuẩn 4 trường, TTL Index 24h tự hủy.
                 </p>
               </div>
 
-              {/* Thẻ 2: 7 Ngày Gần Nhất */}
+              {/* Thẻ 2: Điểm Chiêm Bái POIs (pois) */}
               <div className="p-5 rounded-3xl bg-white border border-[#e2eae4] shadow-xs space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-xs uppercase tracking-wider font-semibold text-[#5c7362] flex items-center gap-1.5">
-                    <Calendar className="w-4 h-4 text-[#2d5a37]" />
-                    <span>7 Ngày Gần Nhất</span>
+                    <MapPin className="w-4 h-4 text-[#2d5a37]" />
+                    <span>Điểm Chiêm Bái</span>
+                  </span>
+                  <span className="text-[10px] bg-[#eef5f0] text-[#2d5a37] px-2 py-0.5 rounded-full font-mono font-bold">
+                    pois
                   </span>
                 </div>
                 <div className="text-2xl sm:text-3xl font-serif font-bold text-[#19231b]">
-                  {statsSummary?.sevenDaysDevices ?? 1}{' '}
-                  <span className="text-xs font-normal font-sans text-[#5c7362]">thiết bị</span>
+                  {statsSummary?.totalPois ?? pois.length}{' '}
+                  <span className="text-xs font-normal font-sans text-[#5c7362]">công trình</span>
                 </div>
                 <p className="text-[11px] text-[#5c7362] leading-tight">
-                  Tổng lượt thiết bị duy nhất viếng thăm trong 7 ngày qua.
+                  Định vị chuẩn 2dsphere GeoJSON Point [lng, lat] & Geofence kích hoạt tự động.
                 </p>
               </div>
 
-              {/* Thẻ 3: Tháng Này */}
+              {/* Thẻ 3: Bản Dịch & Độ Phủ Audio (poi_translations) */}
               <div className="p-5 rounded-3xl bg-white border border-[#e2eae4] shadow-xs space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-xs uppercase tracking-wider font-semibold text-[#5c7362] flex items-center gap-1.5">
-                    <BarChart3 className="w-4 h-4 text-[#2d5a37]" />
-                    <span>Tháng Này</span>
+                    <Volume2 className="w-4 h-4 text-[#2d5a37]" />
+                    <span>Độ Phủ Audio</span>
                   </span>
-                  <span className="text-[10px] bg-[#eef5f0] text-[#2d5a37] px-2 py-0.5 rounded-full font-semibold">
-                    Tháng {new Date().getMonth() + 1}/{new Date().getFullYear()}
+                  <span className="text-[10px] bg-[#eef5f0] text-[#2d5a37] px-2 py-0.5 rounded-full font-mono font-bold">
+                    poi_translations
                   </span>
                 </div>
                 <div className="text-2xl sm:text-3xl font-serif font-bold text-[#19231b]">
-                  {statsSummary?.thisMonthDevices ?? 1}{' '}
-                  <span className="text-xs font-normal font-sans text-[#5c7362]">thiết bị</span>
+                  {statsSummary?.translations?.audioReady ?? 0}
+                  <span className="text-sm font-normal font-sans text-[#5c7362]">
+                    /{statsSummary?.translations?.total ?? 0}
+                  </span>{' '}
+                  <span className="text-xs font-semibold text-emerald-700">
+                    ({statsSummary?.translations?.total ? Math.round(((statsSummary?.translations?.audioReady || 0) / statsSummary.translations.total) * 100) : 0}%)
+                  </span>
                 </div>
                 <p className="text-[11px] text-[#5c7362] leading-tight">
-                  Lưu lượng tích lũy của khách hành hương trong tháng hiện hành.
+                  TTS tự động: {statsSummary?.translations?.audioTts ?? 0} · Upload phòng thu: {statsSummary?.translations?.audioManual ?? 0}
+                </p>
+              </div>
+
+              {/* Thẻ 4: Tư Liệu Hình Ảnh & Khuôn Viên (poi_media & campuses) */}
+              <div className="p-5 rounded-3xl bg-white border border-[#e2eae4] shadow-xs space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs uppercase tracking-wider font-semibold text-[#5c7362] flex items-center gap-1.5">
+                    <ImageIcon className="w-4 h-4 text-[#2d5a37]" />
+                    <span>Tư Liệu Media</span>
+                  </span>
+                  <span className="text-[10px] bg-[#eef5f0] text-[#2d5a37] px-2 py-0.5 rounded-full font-mono font-bold">
+                    poi_media
+                  </span>
+                </div>
+                <div className="text-2xl sm:text-3xl font-serif font-bold text-[#19231b]">
+                  {statsSummary?.totalMedia ?? 0}{' '}
+                  <span className="text-xs font-normal font-sans text-[#5c7362]">hình ảnh</span>
+                </div>
+                <p className="text-[11px] text-[#5c7362] leading-tight">
+                  Tư liệu nhiếp ảnh công trình & khuôn viên ({statsSummary?.totalCampuses ?? 1} campus).
                 </p>
               </div>
             </div>
 
-            {/* 3. BIỂU ĐỒ LƯU LƯỢNG DU KHÁCH THỰC TẾ (THEO NGÀY / THEO THÁNG) */}
+            {/* 3. BIỂU ĐỒ LƯU LƯỢNG DU KHÁCH THỰC TẾ (TRUY VẤN AGGREGATE TỪ daily_visits) */}
             <div className="bg-white rounded-3xl p-6 border border-[#e2eae4] shadow-xs space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-[#f0f3f1] gap-2">
                 <div className="flex items-center gap-2">
@@ -910,9 +1090,9 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   </h3>
                 </div>
                 <div className="text-xs text-[#5c7362]">
-                  Tổng khoảng thời gian:{' '}
+                  Tổng lưu lượng trong kỳ:{' '}
                   <span className="font-bold text-[#2d5a37]">
-                    {visitorStatsData?.totalUniqueDevices || 0} thiết bị
+                    {visitorStatsData?.totalVisits || 0} lượt khách
                   </span>
                 </div>
               </div>
@@ -930,7 +1110,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
               ) : (
                 (() => {
                   const items = visitorStatsData.items;
-                  const maxVal = Math.max(...items.map((i: any) => i.uniqueDevices || 0), 4);
+                  const maxVal = Math.max(...items.map((i: any) => i.visits || 0), 4);
                   const chartWidth = 800;
                   const chartHeight = 220;
                   const padBottom = 35;
@@ -977,7 +1157,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
                           {/* Cột dữ liệu */}
                           {items.map((item: any, idx: number) => {
-                            const val = item.uniqueDevices || 0;
+                            const val = item.visits || 0;
                             const barH = (val / maxVal) * drawHeight;
                             const x = padLeft + idx * slotWidth + (slotWidth - barWidth) / 2;
                             const y = padTop + drawHeight - barH;
@@ -1046,14 +1226,11 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                               {items[hoveredBarIndex].period}
                             </span>
                             <span className="font-mono text-white text-sm">
-                              {items[hoveredBarIndex].uniqueDevices} thiết bị
+                              {items[hoveredBarIndex].visits} lượt khách
                             </span>
                           </div>
-                          <div className="text-[11px] text-emerald-100/80 pt-1 border-t border-emerald-800/60 grid grid-cols-2 gap-x-3 gap-y-0.5">
-                            <span>iPhone (iOS): {items[hoveredBarIndex].iphone}</span>
-                            <span>Android: {items[hoveredBarIndex].android}</span>
-                            <span>Máy tính: {items[hoveredBarIndex].pc}</span>
-                            <span>Khác: {items[hoveredBarIndex].other}</span>
+                          <div className="text-[11px] text-emerald-100/80 pt-1 border-t border-emerald-800/60">
+                            Truy vấn trực tiếp từ collection daily_visits
                           </div>
                         </div>
                       )}
@@ -1063,270 +1240,53 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
               )}
             </div>
 
-            {/* 4. HÀNG 2 CỘT: PHÂN LOẠI THIẾT BỊ VÀ BẢNG XẾP HẠNG TOP POIS */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* PHÂN LOẠI THIẾT BỊ (DONUT CHART & PERCENTAGES) */}
-              <div className="bg-white rounded-3xl p-6 border border-[#e2eae4] shadow-xs space-y-4 flex flex-col justify-between">
-                <div>
-                  <div className="flex items-center justify-between pb-3 border-b border-[#f0f3f1]">
-                    <div className="flex items-center gap-2">
-                      <PieChart className="w-5 h-5 text-[#2d5a37]" />
-                      <h3 className="font-serif font-bold text-base text-[#19231b]">Phân Loại Thiết Bị</h3>
-                    </div>
-                    <span className="text-xs font-mono text-[#5c7362]">
-                      Tổng: {deviceStatsData?.total || 0}
-                    </span>
-                  </div>
-
-                  <div className="py-4 flex items-center justify-center">
-                    <div className="relative w-40 h-40">
-                      <svg viewBox="0 0 200 200" className="w-full h-full -rotate-90">
-                        <circle
-                          cx="100"
-                          cy="100"
-                          r="65"
-                          fill="none"
-                          stroke="#f0f3f1"
-                          strokeWidth="24"
-                        />
-                        {(() => {
-                          const dev = deviceStatsData?.breakdown || { iphone: 0, android: 0, pc: 0, other: 0 };
-                          const total = deviceStatsData?.total || 0;
-                          if (total === 0) return null;
-
-                          const circumference = 2 * Math.PI * 65;
-                          const slices = [
-                            { key: 'iphone', val: dev.iphone, color: '#10b981' },
-                            { key: 'android', val: dev.android, color: '#06b6d4' },
-                            { key: 'pc', val: dev.pc, color: '#8b5cf6' },
-                            { key: 'other', val: dev.other, color: '#94a3b8' },
-                          ];
-
-                          let accumulated = 0;
-                          return slices.map((s, idx) => {
-                            if (s.val <= 0) return null;
-                            const sliceLength = (s.val / total) * circumference;
-                            const offset = (accumulated / total) * circumference;
-                            accumulated += s.val;
-
-                            return (
-                              <circle
-                                key={idx}
-                                cx="100"
-                                cy="100"
-                                r="65"
-                                fill="none"
-                                stroke={s.color}
-                                strokeWidth="24"
-                                strokeDasharray={`${sliceLength} ${circumference}`}
-                                strokeDashoffset={-offset}
-                                className="transition-all duration-500"
-                              />
-                            );
-                          });
-                        })()}
-                      </svg>
-                      <div className="absolute inset-0 flex flex-col items-center justify-center text-center pointer-events-none">
-                        <span className="text-xl font-serif font-bold text-[#19231b]">
-                          {deviceStatsData?.total || 0}
-                        </span>
-                        <span className="text-[10px] text-[#5c7362] uppercase tracking-wider font-semibold">
-                          Thiết bị
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="space-y-2.5 text-xs">
-                    <div className="flex items-center justify-between p-2 rounded-xl bg-[#f7f9f6] border border-[#e2eae4]">
-                      <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 rounded-full bg-[#10b981]" />
-                        <span className="font-semibold text-[#19231b]">iPhone (iOS)</span>
-                      </div>
-                      <div className="text-right">
-                        <span className="font-mono font-bold text-[#19231b]">
-                          {deviceStatsData?.breakdown?.iphone || 0}
-                        </span>
-                        <span className="text-[#5c7362] ml-1.5 text-[11px]">
-                          ({deviceStatsData?.percentages?.iphone || 0}%)
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center justify-between p-2 rounded-xl bg-[#f7f9f6] border border-[#e2eae4]">
-                      <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 rounded-full bg-[#06b6d4]" />
-                        <span className="font-semibold text-[#19231b]">Android</span>
-                      </div>
-                      <div className="text-right">
-                        <span className="font-mono font-bold text-[#19231b]">
-                          {deviceStatsData?.breakdown?.android || 0}
-                        </span>
-                        <span className="text-[#5c7362] ml-1.5 text-[11px]">
-                          ({deviceStatsData?.percentages?.android || 0}%)
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center justify-between p-2 rounded-xl bg-[#f7f9f6] border border-[#e2eae4]">
-                      <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 rounded-full bg-[#8b5cf6]" />
-                        <span className="font-semibold text-[#19231b]">PC (Win/Mac/Linux)</span>
-                      </div>
-                      <div className="text-right">
-                        <span className="font-mono font-bold text-[#19231b]">
-                          {deviceStatsData?.breakdown?.pc || 0}
-                        </span>
-                        <span className="text-[#5c7362] ml-1.5 text-[11px]">
-                          ({deviceStatsData?.percentages?.pc || 0}%)
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center justify-between p-2 rounded-xl bg-[#f7f9f6] border border-[#e2eae4]">
-                      <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 rounded-full bg-[#94a3b8]" />
-                        <span className="font-semibold text-[#19231b]">Khác</span>
-                      </div>
-                      <div className="text-right">
-                        <span className="font-mono font-bold text-[#19231b]">
-                          {deviceStatsData?.breakdown?.other || 0}
-                        </span>
-                        <span className="text-[#5c7362] ml-1.5 text-[11px]">
-                          ({deviceStatsData?.percentages?.other || 0}%)
-                        </span>
-                      </div>
-                    </div>
+            {/* 4. GIÁM SÁT CẤU TRÚC CHUẨN 6 COLLECTIONS MONGODB ATLAS */}
+            <div className="bg-white rounded-3xl p-6 border border-[#e2eae4] shadow-xs space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-[#f0f3f1] gap-2">
+                <div className="flex items-center gap-2">
+                  <Server className="w-5 h-5 text-[#2d5a37]" />
+                  <div>
+                    <h3 className="font-serif font-bold text-base sm:text-lg text-[#19231b]">
+                      Cấu Trúc Chuẩn 6 Collections MongoDB Atlas
+                    </h3>
+                    <p className="text-xs text-[#5c7362]">
+                      Database: <span className="font-mono font-bold text-[#2d5a37]">{healthData?.database?.database || 'vietnam_quoc_tu'}</span>
+                    </p>
                   </div>
                 </div>
-
-                <div className="mt-4 pt-3 border-t border-[#f0f3f1] text-[10px] text-[#7a8e80] leading-relaxed">
-                  🛡️ Phân loại ẩn danh từ nhãn User-Agent & Client Hints (iPadOS nhận diện qua touch points); không lưu trữ User-Agent thô hay IP.
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center gap-1 text-xs font-bold px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+                    <CheckCircle className="w-3.5 h-3.5" />
+                    <span>Đúng 6 Collections Chuẩn</span>
+                  </span>
+                  <span className="text-xs font-mono text-[#5c7362]">
+                    Latency: {healthData?.database?.latencyMs ?? 0} ms
+                  </span>
                 </div>
               </div>
 
-              {/* BẢNG XẾP HẠNG TOP POIS ĐƯỢC NGHE NHIỀU NHẤT */}
-              <div className="lg:col-span-2 bg-white rounded-3xl p-6 border border-[#e2eae4] shadow-xs space-y-4">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-[#f0f3f1] gap-3">
-                  <div className="flex items-center gap-2">
-                    <Award className="w-5 h-5 text-amber-500" />
-                    <div>
-                      <h3 className="font-serif font-bold text-base sm:text-lg text-[#19231b]">
-                        Xếp Hạng Điểm Chiêm Bái Được Nghe Nhiều Nhất
-                      </h3>
-                      <p className="text-xs text-[#5c7362]">
-                        Lượt nghe thực tế đã phát $\ge$ 5 giây từ du khách
-                      </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {[
+                  { name: 'campuses', desc: 'Thông tin đại tự & khuôn viên di tích', docs: statsSummary?.totalCampuses ?? 1, icon: '🏛️' },
+                  { name: 'pois', desc: 'Điểm thuyết minh & Tọa độ 2dsphere GeoJSON', docs: statsSummary?.totalPois ?? pois.length, icon: '📍' },
+                  { name: 'poi_translations', desc: '12 ngôn ngữ bản dịch & đường dẫn Audio', docs: statsSummary?.translations?.total ?? 0, icon: '🌐' },
+                  { name: 'poi_media', desc: 'Thư viện hình ảnh & tư liệu chiêm bái', docs: statsSummary?.totalMedia ?? 0, icon: '🖼️' },
+                  { name: 'admin_users', desc: 'Tài khoản quản trị & xác thực bảo mật JWT', docs: 1, icon: '👤' },
+                  { name: 'daily_visits', desc: 'Mã băm thiết bị khách thực (TTL Index 24h)', docs: statsSummary?.todayVisits ?? todayVisitors, icon: '📊' },
+                ].map((col) => (
+                  <div key={col.name} className="p-3.5 rounded-2xl bg-[#f7f9f6] border border-[#e2eae4] flex items-start gap-3">
+                    <span className="text-2xl">{col.icon}</span>
+                    <div className="space-y-0.5 flex-1 min-w-0">
+                      <div className="flex items-center justify-between">
+                        <span className="font-mono font-bold text-xs text-[#1e3d25]">{col.name}</span>
+                        <span className="text-[10px] font-mono bg-white px-2 py-0.5 rounded-md border border-[#e2eae4] text-[#5c7362]">
+                          {col.docs} docs
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-[#5c7362] leading-tight">{col.desc}</p>
                     </div>
                   </div>
-
-                  {/* Lọc theo ngôn ngữ */}
-                  <div className="flex items-center gap-1.5">
-                    <Languages className="w-4 h-4 text-[#5c7362]" />
-                    <select
-                      value={topPoiLangFilter}
-                      onChange={(e) => setTopPoiLangFilter(e.target.value)}
-                      className="px-3 py-1.5 rounded-xl bg-[#f7f9f6] border border-[#e2eae4] text-xs font-semibold text-[#19231b] outline-hidden focus:border-[#2d5a37]"
-                    >
-                      <option value="all">Tất cả ngôn ngữ</option>
-                      <option value="vi">Tiếng Việt (vi)</option>
-                      <option value="en">English (en)</option>
-                      <option value="zh">Tiếng Trung (zh)</option>
-                      <option value="ja">Tiếng Nhật (ja)</option>
-                      <option value="ko">Tiếng Hàn (ko)</option>
-                      <option value="fr">Tiếng Pháp (fr)</option>
-                      <option value="th">Tiếng Thái (th)</option>
-                      <option value="km">Tiếng Khmer (km)</option>
-                      <option value="my">Tiếng Myanmar (my)</option>
-                      <option value="lo">Tiếng Lào (lo)</option>
-                      <option value="hi">Tiếng Hindi (hi)</option>
-                      <option value="de">Tiếng Đức (de)</option>
-                    </select>
-                  </div>
-                </div>
-
-                {isLoadingStats ? (
-                  <div className="py-12 flex justify-center items-center text-xs text-[#5c7362]">
-                    <RefreshCw className="w-5 h-5 animate-spin text-[#2d5a37] mr-2" />
-                    <span>Đang tải bảng xếp hạng...</span>
-                  </div>
-                ) : !topPOIsData || !topPOIsData.items || topPOIsData.items.length === 0 ? (
-                  <div className="py-12 text-center text-xs text-[#5c7362]">
-                    Chưa có lượt nghe nào được ghi nhận cho bộ lọc này.
-                  </div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-xs">
-                      <thead>
-                        <tr className="border-b border-[#f0f3f1] text-[#7a8e80] font-semibold">
-                          <th className="py-2.5 px-3 w-12 text-center">Hạng</th>
-                          <th className="py-2.5 px-3">Điểm Chiêm Bái</th>
-                          <th className="py-2.5 px-3 text-right">Lượt Nghe</th>
-                          <th className="py-2.5 px-3 text-right">Thiết Bị</th>
-                          <th className="py-2.5 px-3 text-right">Thời Lượng TB</th>
-                          <th className="py-2.5 px-3 w-28 text-center">Tỷ Lệ</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-[#f7f9f6]">
-                        {(() => {
-                          const maxTopListens = Math.max(
-                            ...topPOIsData.items.map((i: any) => i.listens || 0),
-                            1
-                          );
-
-                          return topPOIsData.items.map((item: any, idx: number) => {
-                            const pct = Math.round((item.listens / maxTopListens) * 100);
-                            const rankBadgeColor =
-                              idx === 0
-                                ? 'bg-amber-100 text-amber-800 border-amber-300 font-bold'
-                                : idx === 1
-                                ? 'bg-slate-200 text-slate-800 border-slate-300 font-bold'
-                                : idx === 2
-                                ? 'bg-orange-100 text-orange-800 border-orange-300 font-bold'
-                                : 'bg-[#f7f9f6] text-[#5c7362] border-[#e2eae4]';
-
-                            const dur = item.avgDurationSeconds || 0;
-                            const durStr = dur >= 60 ? `${Math.floor(dur / 60)}m ${dur % 60}s` : `${dur}s`;
-
-                            return (
-                              <tr key={item.poiId} className="hover:bg-[#f7f9f6]/70 transition-colors">
-                                <td className="py-3 px-3 text-center">
-                                  <span
-                                    className={`inline-block w-6 h-6 leading-6 text-[11px] rounded-full border ${rankBadgeColor}`}
-                                  >
-                                    #{idx + 1}
-                                  </span>
-                                </td>
-                                <td className="py-3 px-3">
-                                  <div className="font-semibold text-[#19231b]">{item.title}</div>
-                                  <div className="font-mono text-[10px] text-[#7a8e80]">{item.poiId}</div>
-                                </td>
-                                <td className="py-3 px-3 text-right font-mono font-bold text-[#2d5a37]">
-                                  {item.listens}
-                                </td>
-                                <td className="py-3 px-3 text-right font-mono text-[#19231b]">
-                                  {item.uniqueDevices}
-                                </td>
-                                <td className="py-3 px-3 text-right font-mono text-[#5c7362]">
-                                  {durStr}
-                                </td>
-                                <td className="py-3 px-3 text-center">
-                                  <div className="w-full bg-[#f0f3f1] rounded-full h-2 overflow-hidden">
-                                    <div
-                                      className="bg-[#2d5a37] h-full rounded-full transition-all duration-300"
-                                      style={{ width: `${pct}%` }}
-                                    />
-                                  </div>
-                                  <span className="text-[9px] font-mono text-[#7a8e80]">{pct}%</span>
-                                </td>
-                              </tr>
-                            );
-                          });
-                        })()}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
+                ))}
               </div>
             </div>
 
@@ -1874,10 +1834,293 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         )}
 
         {/* ========================================================= */}
-        {/* TAB 3: CẤU HÌNH GIỌNG ĐỌC MẶC ĐỊNH & LIVE AUDIO TESTER    */}
+        {/* TAB 3: PHÂN HỆ QUẢN LÝ AUDIO & CẤU HÌNH GIỌNG ĐỌC         */}
         {/* ========================================================= */}
         {activeTab === 'audio' && (
-          <div className="space-y-6 animate-fade-in max-w-4xl mx-auto">
+          <div className="space-y-6 animate-fade-in max-w-6xl mx-auto">
+            {/* PHẦN 1: TRÌNH QUẢN LÝ TỆP ÂM THANH THUYẾT MINH TOÀN DIỆN */}
+            <div className="bg-white rounded-3xl p-6 border border-[#e2eae4] shadow-xs space-y-5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-[#f0f3f1] gap-3">
+                <div>
+                  <span className="text-xs uppercase tracking-wider font-semibold text-[#2d5a37] flex items-center gap-1.5">
+                    <Mic className="w-4 h-4 text-[#2d5a37]" />
+                    <span>Phân Hệ Quản Lý Tệp Âm Thanh Thuyết Minh</span>
+                  </span>
+                  <h3 className="font-serif font-bold text-lg text-[#19231b] mt-0.5">
+                    Quản Lý Audio 12 Ngôn Ngữ & Phân Biệt Nguồn Thu
+                  </h3>
+                  <p className="text-xs text-[#5c7362] mt-0.5">
+                    Kiểm tra, nghe thử trực tiếp, upload MP3 phòng thu (≤20MB) hoặc xóa tệp âm thanh (set audio_url = null).
+                  </p>
+                </div>
+
+                {/* Bộ lọc theo POI và Ngôn ngữ */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex items-center gap-1.5">
+                    <MapPin className="w-4 h-4 text-[#5c7362]" />
+                    <select
+                      value={audioFilterPoiId}
+                      onChange={(e) => setAudioFilterPoiId(e.target.value)}
+                      className="px-3 py-1.5 rounded-xl bg-[#f7f9f6] border border-[#e2eae4] text-xs font-semibold text-[#19231b] outline-hidden focus:border-[#2d5a37] max-w-[200px]"
+                    >
+                      <option value="all">Tất cả POIs ({pois.length})</option>
+                      {pois.map((p) => (
+                        <option key={p.poi_id} value={p.poi_id}>
+                          {p.code} - {p.translations['vi']?.title || p.code}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    <Languages className="w-4 h-4 text-[#5c7362]" />
+                    <select
+                      value={audioFilterLang}
+                      onChange={(e) => setAudioFilterLang(e.target.value)}
+                      className="px-3 py-1.5 rounded-xl bg-[#f7f9f6] border border-[#e2eae4] text-xs font-semibold text-[#19231b] outline-hidden focus:border-[#2d5a37]"
+                    >
+                      <option value="all">Tất cả 12 ngôn ngữ</option>
+                      <option value="vi">🇻🇳 Tiếng Việt (vi)</option>
+                      <option value="en">🇬🇧 English (en)</option>
+                      <option value="zh">🇨🇳 中文 (zh)</option>
+                      <option value="ja">🇯🇵 日本語 (ja)</option>
+                      <option value="ko">🇰🇷 한국어 (ko)</option>
+                      <option value="fr">🇫🇷 Français (fr)</option>
+                      <option value="th">🇹🇭 ไทย (th)</option>
+                      <option value="km">🇰🇭 ភាសាខ្មែរ (km)</option>
+                      <option value="my">🇲🇲 မြန်မာ (my)</option>
+                      <option value="lo">🇱🇦 ພາສາລາວ (lo)</option>
+                      <option value="hi">🇮🇳 हिन्दी (hi)</option>
+                      <option value="de">🇩🇪 Deutsch (de)</option>
+                    </select>
+                  </div>
+
+                  <button
+                    onClick={onRefreshPOIs}
+                    className="p-2 rounded-xl bg-[#f7f9f6] hover:bg-[#eef5f0] border border-[#e2eae4] text-[#5c7362] hover:text-[#2d5a37] transition-colors"
+                    title="Làm mới danh sách Audio"
+                  >
+                    <RefreshCw className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Danh sách Audio theo bộ lọc */}
+              {(() => {
+                const ALL_LANGUAGES = [
+                  { code: 'vi', name: 'Tiếng Việt', flag: '🇻🇳' },
+                  { code: 'en', name: 'English', flag: '🇬🇧' },
+                  { code: 'zh', name: '中文 (Chinese)', flag: '🇨🇳' },
+                  { code: 'ja', name: '日本語 (Japanese)', flag: '🇯🇵' },
+                  { code: 'ko', name: '한국어 (Korean)', flag: '🇰🇷' },
+                  { code: 'fr', name: 'Français (French)', flag: '🇫🇷' },
+                  { code: 'th', name: 'ไทย (Thai)', flag: '🇹🇭' },
+                  { code: 'km', name: 'ភាសាខ្មែរ (Khmer)', flag: '🇰🇭' },
+                  { code: 'my', name: 'မြန်မာ (Myanmar)', flag: '🇲🇲' },
+                  { code: 'lo', name: 'ພາສາລາວ (Lao)', flag: '🇱🇦' },
+                  { code: 'hi', name: 'हिन्दी (Hindi)', flag: '🇮🇳' },
+                  { code: 'de', name: 'Deutsch (German)', flag: '🇩🇪' },
+                ];
+
+                const filteredPois = audioFilterPoiId === 'all'
+                  ? pois
+                  : pois.filter((p) => p.poi_id === audioFilterPoiId);
+
+                const audioRows: Array<{
+                  poi: RichPOI;
+                  lang: string;
+                  langInfo: { code: string; name: string; flag: string };
+                  trans?: any;
+                  audioUrl?: string | null;
+                  sourceType: 'manual' | 'tts' | 'none';
+                }> = [];
+
+                filteredPois.forEach((p) => {
+                  const targetLangs = audioFilterLang === 'all'
+                    ? ALL_LANGUAGES
+                    : ALL_LANGUAGES.filter((l) => l.code === audioFilterLang);
+
+                  targetLangs.forEach((l) => {
+                    const trans = p.translations[l.code];
+                    const url = trans?.audio_url;
+                    let sourceType: 'manual' | 'tts' | 'none' = 'none';
+                    if (url) {
+                      if (trans?.audio_source === 'manual' || url.startsWith('/audio/manual-')) {
+                        sourceType = 'manual';
+                      } else {
+                        sourceType = 'tts';
+                      }
+                    }
+                    audioRows.push({
+                      poi: p,
+                      lang: l.code,
+                      langInfo: l,
+                      trans,
+                      audioUrl: url,
+                      sourceType,
+                    });
+                  });
+                });
+
+                if (audioRows.length === 0) {
+                  return (
+                    <div className="py-12 text-center text-xs text-[#5c7362]">
+                      Không có bản ghi âm thanh nào khớp với bộ lọc đã chọn.
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead>
+                        <tr className="border-b border-[#e2eae4] text-[#7a8e80] font-semibold">
+                          <th className="py-2.5 px-3">Điểm Chiêm Bái</th>
+                          <th className="py-2.5 px-3">Ngôn Ngữ</th>
+                          <th className="py-2.5 px-3">Nguồn Audio (Badge)</th>
+                          <th className="py-2.5 px-3">Nghe Thử (Mini Player)</th>
+                          <th className="py-2.5 px-3 text-right">Thao Tác Quản Lý</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#f0f3f1]">
+                        {audioRows.map((row) => {
+                          const itemKey = `${row.poi.poi_id}-${row.lang}`;
+                          const isPlayingThis = playingAudioKey === itemKey;
+                          const isUploadingThis = uploadingAudioTarget?.poiId === row.poi.poi_id && uploadingAudioTarget?.lang === row.lang;
+                          const isRegeneratingThis = regeneratingAudioTarget?.poiId === row.poi.poi_id && regeneratingAudioTarget?.lang === row.lang;
+                          const isDeletingThis = deletingAudioTarget?.poiId === row.poi.poi_id && deletingAudioTarget?.lang === row.lang;
+
+                          return (
+                            <tr key={itemKey} className="hover:bg-[#f7f9f6] transition-colors">
+                              {/* Cột 1: POI */}
+                              <td className="py-3 px-3">
+                                <div className="font-bold text-[#1e3d25]">
+                                  {row.poi.translations['vi']?.title || row.poi.code}
+                                </div>
+                                <div className="font-mono text-[10px] text-[#7a8e80]">
+                                  {row.poi.code} · {row.trans?.title || '(Chưa có tiêu đề)'}
+                                </div>
+                              </td>
+
+                              {/* Cột 2: Ngôn ngữ */}
+                              <td className="py-3 px-3 whitespace-nowrap">
+                                <div className="flex items-center gap-1.5 font-medium text-[#19231b]">
+                                  <span className="text-base">{row.langInfo.flag}</span>
+                                  <span>{row.langInfo.name}</span>
+                                  <span className="font-mono text-[10px] text-[#5c7362]">[{row.lang.toUpperCase()}]</span>
+                                </div>
+                              </td>
+
+                              {/* Cột 3: Nguồn Audio & Badge */}
+                              <td className="py-3 px-3 whitespace-nowrap">
+                                {row.sourceType === 'manual' ? (
+                                  <div className="space-y-1">
+                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-purple-100 text-purple-900 border border-purple-300 shadow-2xs">
+                                      🎙️ Upload Phòng Thu
+                                    </span>
+                                    <div className="text-[10px] font-mono text-[#7a8e80] truncate max-w-[170px]" title={row.audioUrl || ''}>
+                                      {row.audioUrl?.split('/').pop()}
+                                    </div>
+                                  </div>
+                                ) : row.sourceType === 'tts' ? (
+                                  <div className="space-y-1">
+                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-900 border border-emerald-300 shadow-2xs">
+                                      🤖 TTS Tự Động
+                                    </span>
+                                    <div className="text-[10px] font-mono text-[#7a8e80] truncate max-w-[170px]" title={row.audioUrl || ''}>
+                                      {row.audioUrl?.split('/').pop()}
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-gray-100 text-gray-500 border border-dashed border-gray-300">
+                                    Chưa có Audio
+                                  </span>
+                                )}
+                              </td>
+
+                              {/* Cột 4: Mini Player Preview */}
+                              <td className="py-3 px-3 whitespace-nowrap">
+                                {row.audioUrl ? (
+                                  <div className="flex items-center gap-2 bg-[#f7f9f6] p-1.5 px-2.5 rounded-2xl border border-[#e2eae4] w-fit">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleTogglePlayAudio(row.audioUrl!, itemKey)}
+                                      className={`w-7 h-7 rounded-xl flex items-center justify-center transition-all ${
+                                        isPlayingThis
+                                          ? 'bg-[#2d5a37] text-white shadow-xs animate-pulse'
+                                          : 'bg-white text-[#2d5a37] hover:bg-[#eef5f0] border border-[#d6e7da]'
+                                      }`}
+                                      title={isPlayingThis ? 'Dừng phát' : 'Nghe thử âm thanh'}
+                                    >
+                                      {isPlayingThis ? <VolumeX className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5 fill-current ml-0.5" />}
+                                    </button>
+
+                                    <div className="text-[11px] font-mono font-medium text-[#1e3d25] min-w-[70px]">
+                                      {isPlayingThis
+                                        ? `${Math.floor(audioCurrentTime)}s / ${Math.floor(audioDuration || 0)}s`
+                                        : 'Nghe thử'}
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <span className="text-[11px] text-[#7a8e80] italic">
+                                    Không thể nghe thử
+                                  </span>
+                                )}
+                              </td>
+
+                              {/* Cột 5: Thao tác quản lý */}
+                              <td className="py-3 px-3 text-right whitespace-nowrap">
+                                <div className="flex items-center justify-end gap-1.5">
+                                  {/* Upload Audio thủ công */}
+                                  <button
+                                    type="button"
+                                    onClick={() => handleTriggerUploadAudio(row.poi.poi_id, row.lang)}
+                                    disabled={isUploadingThis}
+                                    className="px-2.5 py-1.5 rounded-xl bg-white border border-[#2d5a37] text-[#2d5a37] hover:bg-[#eef5f0] text-xs font-bold flex items-center gap-1 transition-colors disabled:opacity-50 shadow-2xs"
+                                    title="Tải lên tệp âm thanh MP3 phòng thu (tối đa 20MB theo quy định BR10-3)"
+                                  >
+                                    <Upload className={`w-3 h-3 ${isUploadingThis ? 'animate-bounce' : ''}`} />
+                                    <span>{isUploadingThis ? 'Đang tải...' : 'Upload MP3'}</span>
+                                  </button>
+
+                                  {/* Tạo lại Audio TTS */}
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRegenerateAudio(row.poi.poi_id, row.lang)}
+                                    disabled={isRegeneratingThis}
+                                    className="px-2.5 py-1.5 rounded-xl bg-white border border-[#e2eae4] hover:bg-[#f7f9f6] text-[#5c7362] hover:text-[#19231b] text-xs font-semibold flex items-center gap-1 transition-colors disabled:opacity-50"
+                                    title="Tạo lại âm thanh TTS tự động từ nội dung bản dịch"
+                                  >
+                                    <RotateCcw className={`w-3 h-3 ${isRegeneratingThis ? 'animate-spin text-[#2d5a37]' : ''}`} />
+                                    <span>{isRegeneratingThis ? 'Đang tạo...' : 'Tạo TTS'}</span>
+                                  </button>
+
+                                  {/* Xóa Audio */}
+                                  {row.audioUrl && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteAudioFile(row.poi.poi_id, row.lang)}
+                                      disabled={isDeletingThis}
+                                      className="px-2 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-semibold flex items-center gap-1 transition-colors disabled:opacity-50"
+                                      title="Xóa tệp âm thanh vật lý trên server và đặt audio_url = null"
+                                    >
+                                      <Trash2 className="w-3 h-3" />
+                                      <span>{isDeletingThis ? 'Đang xóa...' : 'Xóa'}</span>
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* PHẦN 2: CẤU HÌNH GIỌNG ĐỌC MẶC ĐỊNH TOÀN HỆ THỐNG */}
             <div className="bg-white rounded-3xl p-6 border border-[#e2eae4] shadow-xs space-y-5">
               <div className="border-b border-[#f0f3f1] pb-3">
                 <h3 className="font-serif font-bold text-base sm:text-lg text-[#19231b]">
