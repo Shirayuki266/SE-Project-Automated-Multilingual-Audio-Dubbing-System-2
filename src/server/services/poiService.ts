@@ -139,7 +139,7 @@ export class POIService {
     lang: string,
     title: string,
     desc: string,
-    audioUrl?: string,
+    audioUrl?: string | null,
     intro?: string,
     isManuallyEdited: boolean = true
   ) {

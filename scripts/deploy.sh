@@ -49,7 +49,7 @@ success=false
 
 while [ $attempt -le $MAX_RETRIES ]; do
   status_code=$(curl -s -o /dev/null -w "%{http_code}" "$HEALTH_ENDPOINT" 2>/dev/null || echo "000")
-  if [ "$status_code" -eq 200 ] || [ "$status_code" -eq 304 ]; then
+  if [ "$status_code" = "200" ] || [ "$status_code" = "304" ]; then
     echo "🎉 Dịch vụ phản hồi HTTP 200 OK từ ${HEALTH_ENDPOINT}!"
     success=true
     break

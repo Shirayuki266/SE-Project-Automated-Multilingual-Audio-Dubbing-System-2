@@ -79,7 +79,7 @@ jobs:
       - name: Execute Deployment Verification Script
         run: |
           chmod +x ./scripts/deploy.sh
-          ./scripts/deploy.sh
+          bash ./scripts/deploy.sh
 
       - name: Call Render Deploy Webhook
         run: |

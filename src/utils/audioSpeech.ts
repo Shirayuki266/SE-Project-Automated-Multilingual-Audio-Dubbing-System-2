@@ -711,7 +711,7 @@ export class AudioSpeechEngine {
     poiTitle?: string,
     _playChime: boolean = false,
     poiId?: string,
-    audioUrl?: string,
+    audioUrl?: string | null,
     introText?: string
   ) {
     // 1. Anti-overlap: Cancel all prior sessions, fetch requests, and audio sources
@@ -755,7 +755,7 @@ export class AudioSpeechEngine {
     title?: string,
     lang: LanguageCode = 'vi',
     poiId?: string,
-    audioUrl?: string,
+    audioUrl?: string | null,
     introText?: string
   ) {
     this.playNarration(text, lang, title, false, poiId, audioUrl, introText);
