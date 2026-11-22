@@ -33,6 +33,18 @@ async function startServer() {
     console.warn('[Server Startup] MongoDB init notice:', err?.message || err);
   }
 
+  // Kiểm tra cấu hình bắt buộc cho JWT Secret
+  const jwtSecret = process.env.JWT_SECRET || process.env.AUTH_SECRET;
+  if (!jwtSecret || jwtSecret.trim() === '') {
+    console.error('❌ [BẢO MẬT] Lỗi nghiêm trọng: Biến môi trường JWT_SECRET chưa được thiết lập trong .env!');
+    console.error('👉 Vui lòng thêm dòng: JWT_SECRET="chuoi_bi_mat_it_nhat_32_ky_tu" vào file .env');
+    if (process.env.NODE_ENV === 'production') {
+      process.exit(1);
+    }
+  } else {
+    console.log('🔒 [Bảo Mật] Cơ chế xác thực Admin JWT (HS256 - 8h) & bcrypt (10 rounds) đã kích hoạt.');
+  }
+
   const app = express();
   const port = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
   const isProduction = process.env.NODE_ENV === 'production';

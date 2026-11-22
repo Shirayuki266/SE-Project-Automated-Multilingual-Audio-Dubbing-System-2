@@ -192,6 +192,68 @@ export class POIService {
   public getCampuses(): Campus[] {
     return poiRepository.getAllCampuses();
   }
+
+  public setCustomAudio(poiId: string, lang: string, audioUrl: string) {
+    const existing = poiRepository.findById(poiId);
+    if (!existing) {
+      throw new Error(`Không tìm thấy điểm POI với mã "${poiId}".`);
+    }
+    const currentTrans = existing.translations[lang.toLowerCase()];
+    if (!currentTrans) {
+      throw new Error(`Bản dịch tiếng [${lang.toUpperCase()}] chưa được khởi tạo. Vui lòng nhập tiêu đề & nội dung trước.`);
+    }
+    // Clean old manual audio if different
+    if (currentTrans.audio_url && currentTrans.audio_url.startsWith('/audio/manual-') && currentTrans.audio_url !== audioUrl) {
+      fileStorageService.deleteUploadedAudio(currentTrans.audio_url);
+    }
+    const updatedTrans = {
+      ...currentTrans,
+      audio_url: audioUrl,
+      is_manually_edited: true,
+      audio_updated_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    poiRepository.saveTranslation(updatedTrans);
+    return poiRepository.findById(poiId);
+  }
+
+  public removeCustomAudio(poiId: string, lang: string) {
+    const existing = poiRepository.findById(poiId);
+    if (!existing) {
+      throw new Error(`Không tìm thấy điểm POI với mã "${poiId}".`);
+    }
+    const currentTrans = existing.translations[lang.toLowerCase()];
+    if (!currentTrans) {
+      throw new Error(`Không tìm thấy bản dịch.`);
+    }
+    if (currentTrans.audio_url && currentTrans.audio_url.startsWith('/audio/manual-')) {
+      fileStorageService.deleteUploadedAudio(currentTrans.audio_url);
+    }
+    // Revert back to standard cached TTS audio path
+    const updatedTrans = {
+      ...currentTrans,
+      audio_url: `/audio/${poiId}-${lang.toLowerCase()}.mp3`,
+      audio_updated_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    poiRepository.saveTranslation(updatedTrans);
+    return poiRepository.findById(poiId);
+  }
+
+  public deleteTranslation(poiId: string, lang: string): boolean {
+    const existing = poiRepository.findById(poiId);
+    if (!existing) {
+      throw new Error(`Không tìm thấy điểm POI với mã "${poiId}".`);
+    }
+    if (lang.toLowerCase() === 'vi') {
+      throw new Error('Không thể xóa bản dịch tiếng Việt (gốc).');
+    }
+    const currentTrans = existing.translations[lang.toLowerCase()];
+    if (currentTrans?.audio_url && currentTrans.audio_url.startsWith('/audio/manual-')) {
+      fileStorageService.deleteUploadedAudio(currentTrans.audio_url);
+    }
+    return poiRepository.deleteTranslation(poiId, lang);
+  }
 }
 
 export const poiService = new POIService();

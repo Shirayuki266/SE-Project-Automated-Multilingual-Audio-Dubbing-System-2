@@ -406,6 +406,20 @@ class MongoDatabaseEngine {
     return this.translations.get(`${poi_id}_${lang.toLowerCase()}`);
   }
 
+  public deleteTranslation(poi_id: string, lang: string): boolean {
+    const key = `${poi_id}_${lang.toLowerCase()}`;
+    const existed = this.translations.delete(key);
+    if (mongoManager.isConnectedToRemote) {
+      mongoManager.getCollection<POITranslation>('poi_translations')?.deleteOne({
+        poi_id,
+        language_code: lang.toLowerCase(),
+      }).catch((e) => {
+        console.warn('[MongoDB] deleteTranslation notice:', e.message);
+      });
+    }
+    return existed;
+  }
+
   // --- Media Management ---
   public addMedia(m: Omit<POIMedia, 'media_id'>): POIMedia {
     const media_id = 'media-' + Date.now().toString(36);

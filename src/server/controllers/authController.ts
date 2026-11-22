@@ -6,22 +6,16 @@ export class AuthController {
   // POST /api/auth/login
   public async login(req: Request, res: Response) {
     try {
-      const { username, password, deviceId, screenResolution } = req.body;
+      const { username, password } = req.body;
       if (!username || !password) {
         return res.status(400).json({ success: false, error: 'Vui lòng nhập tên đăng nhập và mật khẩu.' });
       }
 
       const result = authService.login(username, password);
       if (!result.success) {
-        return res.status(401).json({ success: false, error: result.error });
+        const statusCode = result.statusCode || 401;
+        return res.status(statusCode).json({ success: false, error: result.error });
       }
-
-      // Ghi nhận thiết bị thực tế đăng nhập tài khoản vào MongoDB collection "real_devices" (Không tạo ảo)
-      const userAgent = (req.headers['user-agent'] as string) || '';
-      const ipAddress =
-        ((req.headers['x-forwarded-for'] as string) || '').split(',')[0].trim() ||
-        req.socket.remoteAddress ||
-        '127.0.0.1';
 
       if (result.user) {
         db.updateAdminLastLogin(result.user.user_id);
@@ -40,11 +34,14 @@ export class AuthController {
   // GET /api/auth/me
   public me(req: Request, res: Response) {
     const authHeader = req.headers.authorization;
-    const token = authHeader?.replace('Bearer ', '');
+    const token = authHeader?.replace('Bearer ', '').trim();
     const validation = authService.validateToken(token);
 
     if (!validation.valid) {
-      return res.status(401).json({ success: false, error: 'Phiên làm việc hết hạn hoặc không hợp lệ.' });
+      return res.status(401).json({
+        success: false,
+        error: validation.message || 'Phiên làm việc hết hạn hoặc không hợp lệ.',
+      });
     }
 
     return res.json({ success: true, user: validation.user });
@@ -53,7 +50,7 @@ export class AuthController {
   // POST /api/auth/logout
   public logout(req: Request, res: Response) {
     const authHeader = req.headers.authorization;
-    const token = authHeader?.replace('Bearer ', '');
+    const token = authHeader?.replace('Bearer ', '').trim();
     if (token) {
       authService.logout(token);
     }

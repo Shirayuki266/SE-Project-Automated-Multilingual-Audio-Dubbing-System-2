@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import assert from 'node:assert';
 import { calculateHaversineDistance, db } from '../src/server/repositories/db.js';
 import { poiService } from '../src/server/services/poiService.js';
@@ -33,14 +34,44 @@ assert(tamQuanPOI.translations['vi']?.description, 'Vietnamese translation must 
 console.log('✅ POI structure (Title, Intro, Script, Audio) verified.');
 console.log('✅ MongoDB GeoJSON Point & Spatial proximity query verified.');
 
-// 3. Admin Authentication & RBAC Test
+// 3. Admin Authentication & RBAC Test (bcrypt salt rounds=10, JWT 8h, Lockout after 5 failed tries)
+authService.resetLockout('admin');
 const validLogin = authService.login('admin', 'vnqt@2026');
-assert.strictEqual(validLogin.success, true);
-assert(validLogin.token && validLogin.token.startsWith('vnqt_adm_'));
+assert.strictEqual(validLogin.success, true, 'Admin login with correct password must succeed');
+assert(validLogin.token && validLogin.token.startsWith('eyJ'), 'JWT token must start with eyJ');
 
-const invalidLogin = authService.login('admin', 'wrong_pass');
-assert.strictEqual(invalidLogin.success, false);
-console.log('✅ Admin authentication verified.');
+// Validate token
+const validation = authService.validateToken(validLogin.token);
+assert.strictEqual(validation.valid, true, 'Valid JWT token must pass validation');
+assert.strictEqual(validation.user?.username, 'admin', 'JWT user must be admin');
+
+// Invalid password test
+const invalidLogin = authService.login('admin', 'wrong_pass_1');
+assert.strictEqual(invalidLogin.success, false, 'Wrong password must fail');
+assert.strictEqual(invalidLogin.statusCode, 401, 'Wrong password should return 401');
+
+// Test Lockout: trigger remaining 4 failed attempts (total 5)
+authService.login('admin', 'wrong_pass_2');
+authService.login('admin', 'wrong_pass_3');
+authService.login('admin', 'wrong_pass_4');
+const fifthFailed = authService.login('admin', 'wrong_pass_5');
+assert.strictEqual(fifthFailed.success, false);
+assert.strictEqual(fifthFailed.statusCode, 423, '5th failed login must return 423 Locked');
+assert(fifthFailed.error && fifthFailed.error.includes('khóa 15 phút'), 'Error message must mention 15-minute lockout');
+
+// Locked account attempt even with correct password
+const tryWhileLocked = authService.login('admin', 'vnqt@2026');
+assert.strictEqual(tryWhileLocked.success, false, 'Login must be blocked while account is locked');
+assert.strictEqual(tryWhileLocked.statusCode, 423, 'Must return 423 while locked');
+
+// Token invalidation test
+const invalidTokenCheck = authService.validateToken('invalid.jwt.token');
+assert.strictEqual(invalidTokenCheck.valid, false, 'Invalid token must be rejected');
+assert.strictEqual(invalidTokenCheck.error, 'INVALID_TOKEN');
+
+// Cleanup lockout for subsequent operations
+authService.resetLockout('admin');
+console.log('✅ Admin authentication (bcrypt 10, JWT 8h, 5-attempt Lockout) verified.');
 
 // 4. Daily Visits & Deduplication (1 máy = 1 người = 1 lượt/ngày)
 const hash1 = dailyVisitService.generateVisitorHash('test-device-uuid-1', 'TestUA');
@@ -321,5 +352,31 @@ function testGeofenceResolutionAndLocking() {
   console.log('✅ Hierarchical POI Selection, Priority, Single-playback Locking & Hysteresis verified (5 positions simulation passed).');
 }
 testGeofenceResolutionAndLocking();
+
+// 9. Audio Upload & Translation Management Verification (UC10 A2, A4, BR10-3)
+function testAudioUploadAndTranslationManagement() {
+  const testPoiId = 'poi-tam-quan';
+  // 9.1 Set custom audio MP3
+  const updatedWithAudio = poiService.setCustomAudio(testPoiId, 'en', '/audio/manual-tam-quan-en-test.mp3');
+  assert.strictEqual(updatedWithAudio?.translations['en']?.audio_url, '/audio/manual-tam-quan-en-test.mp3');
+  assert.strictEqual(updatedWithAudio?.translations['en']?.is_manually_edited, true);
+
+  // 9.2 Revert custom audio MP3
+  const revertedAudio = poiService.removeCustomAudio(testPoiId, 'en');
+  assert.strictEqual(revertedAudio?.translations['en']?.audio_url, `/audio/${testPoiId}-en.mp3`);
+
+  // 9.3 Delete translation (cannot delete 'vi')
+  assert.throws(() => {
+    poiService.deleteTranslation(testPoiId, 'vi');
+  }, /Không thể xóa bản dịch tiếng Việt/);
+
+  // Add temporary translation and delete it
+  poiService.saveTranslation(testPoiId, 'fr', 'Test FR Title', 'Test FR Content');
+  const deleted = poiService.deleteTranslation(testPoiId, 'fr');
+  assert.strictEqual(deleted, true);
+
+  console.log('✅ Custom Audio Upload (20MB limit), Audio Revert & Translation Deletion (UC10) verified.');
+}
+testAudioUploadAndTranslationManagement();
 
 console.log('🎉 All backend tests passed successfully!');

@@ -79,6 +79,13 @@
 - **Vòng 2 (Client Web Speech API Fallback)**: Tận dụng trực tiếp bộ tổng hợp giọng nói trên hệ điều hành của thiết bị du khách khi ngoại tuyến.
 - **Tùy biến âm thanh**: Điều chỉnh tốc độ đọc (0.7x – 2.5x), cao độ giọng (pitch), tua tiến/lùi 10s và nút tắt âm thanh khẩn cấp khi vào nơi tôn nghiêm.
 
+### 5. Progressive Web App (PWA) & Chế Độ Ngoại Tuyến (Offline Capability)
+- **Cấu hình PWA tiêu chuẩn**: Tích hợp `vite-plugin-pwa`, `manifest.webmanifest` đa ngôn ngữ, icons chuẩn (192x192, 512x512, apple-touch-icon) cho phép cài đặt trực tiếp lên màn hình chính điện thoại (Add to Home Screen).
+- **Service Worker & Workbox Caching**:
+  - *CacheFirst*: Tự động lưu trữ offline các tệp âm thanh thuyết minh MP3 và hình ảnh di tích.
+  - *NetworkFirst (Timeout 3s)*: Đảm bảo dữ liệu điểm chiêm bái luôn tươi mới khi có mạng, tự động chuyển sang cache khi mạng chập chờn.
+- **Dữ liệu dự phòng localStorage (`vnqt_cached_pois`)**: Khi thiết bị mất hẳn kết nối 4G/WiFi, ứng dụng tự động truy xuất dữ liệu 8 điểm chiêm bái từ bộ nhớ đệm nội bộ kèm nhãn trạng thái cảnh báo trực quan cho du khách.
+
 ### 5. Quét Mã QR & Tem Chiêm Bái
 - Quét mã QR dán tại từng điểm di tích để lập tức mở đúng bài thuyết minh của công trình đó mà không cần bật GPS.
 - Admin có thể kết xuất mã QR kèm khung viền trang nhã ra file PNG/JPG để in ấn thực địa.
@@ -177,6 +184,8 @@ Dự án được xây dựng chuẩn mực theo mô hình **Kiến trúc 3 lớ
 | **AI Dịch thuật** | Google GenAI SDK | `^2.4.0` | Gọi Gemini 2.5/3.8 Flash dịch tự động ngữ cảnh Phật học |
 | **AI Giọng nói (TTS)** | Google TTS Engine | `google-tts-api` | Phân đoạn và tạo file âm thanh MP3 lưu đệm máy chủ |
 | **Cơ sở dữ liệu** | MongoDB Driver | `^7.7.0` | Thao tác CSDL NoSQL và chỉ mục địa lý không gian 2dsphere |
+| **Xác thực & Mã hóa** | Bcrypt & JWT | `bcryptjs` / `jsonwebtoken` | Băm mật khẩu (10 salt rounds), JWT Token thời hạn 8h & khóa tài khoản 15 phút sau 5 lần sai |
+| **PWA & Offline** | Vite Plugin PWA | `vite-plugin-pwa` | Chạy offline, đăng ký Service Worker, cache Audio/Image và lưu trữ localStorage 8 POI |
 | **Quản lý Uploads** | Multer | `^1.4.5` | Tiếp nhận và kiểm tra bảo mật tệp ảnh tải lên (max 5MB) |
 | **Định vị & Lọc sóng** | Kalman Filter 2D | Thuật toán nội tại | Khử nhiễu GPS và triệt tiêu sai số trôi tọa độ |
 | **Tổng hợp sóng âm** | PCM WAV Synthesizer | Thuật toán nội tại | Tạo âm chuông chùa 16-bit trực tiếp trên máy chủ |
@@ -185,7 +194,10 @@ Dự án được xây dựng chuẩn mực theo mô hình **Kiến trúc 3 lớ
 
 ## 🏛️ Cổng Quản Trị Hệ Thống (Admin CMS)
 
-Cổng quản trị được tích hợp ngay trong ứng dụng, bảo vệ bằng mã hóa JWT:
+Cổng quản trị được tích hợp ngay trong ứng dụng, bảo vệ bằng cơ chế xác thực bảo mật cao:
+- **Bảo mật mật khẩu**: Mật khẩu được băm bằng thuật toán `bcrypt` tiêu chuẩn công nghiệp với hệ số Salt Rounds = 10.
+- **Xác thực phiên làm việc (JWT)**: Sinh Token JWT bằng thuật toán `HS256` với thời hạn hiệu lực **8 giờ** (`expiresIn: '8h'`).
+- **Chống tấn công Brute-Force (Account Lockout)**: Tự động khóa tài khoản tạm thời **15 phút** nếu đăng nhập sai quá **5 lần liên tiếp** (trả về mã trạng thái HTTP 423 Locked).
 - **Cách truy cập**: Nhấp vào biểu tượng **Khóa bảo mật (🔒)** ở góc phải thanh Header hoặc truy cập qua đường dẫn `?admin=login`.
 - **Tài khoản mặc định**:
   - Tên đăng nhập: `admin`
@@ -237,8 +249,9 @@ Tạo file `.env` từ file mẫu `.env.example`:
 
 Mở file `.env` và điền các thông tin:
 ```env
-# Khóa bí mật ký JWT Token Admin
-AUTH_SECRET=vnqt_secret_jwt_auth_key_2026
+# Khóa bí mật ký JWT Token Admin (bắt buộc, HS256, thời hạn 8h)
+JWT_SECRET=vnqt_jwt_secret_key_2026_vietnam_quoc_tu_secure_hash
+AUTH_SECRET=vnqt_jwt_secret_key_2026_vietnam_quoc_tu_secure_hash
 
 # Tên cơ sở dữ liệu MongoDB
 MONGODB_DB_NAME=vietnam_quoc_tu

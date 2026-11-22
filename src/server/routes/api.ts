@@ -19,9 +19,13 @@ import { fileStorageService } from '../services/fileStorageService.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const UPLOADS_DIR = path.resolve(__dirname, '../../../public/uploads');
+const AUDIO_DIR = path.resolve(__dirname, '../../../public/audio');
 
 if (!fs.existsSync(UPLOADS_DIR)) {
   fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+}
+if (!fs.existsSync(AUDIO_DIR)) {
+  fs.mkdirSync(AUDIO_DIR, { recursive: true });
 }
 
 // Cấu hình Multer lưu ảnh an toàn vào public/uploads
@@ -52,15 +56,61 @@ const upload = multer({
   },
 });
 
-// Middleware xác thực Admin JWT (trả 401 khi thiếu JWT hoặc không hợp lệ)
+// Cấu hình Multer lưu file audio thủ công vào public/audio (BR10-3: tối đa 20MB)
+const audioStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => {
+    cb(null, AUDIO_DIR);
+  },
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase() || '.mp3';
+    const rand = crypto.randomBytes(6).toString('hex');
+    const poiId = req.body?.poiId || req.params?.id || 'poi';
+    const lang = req.body?.lang || req.params?.lang || 'vi';
+    const safeName = `manual-${poiId}-${lang}-${Date.now()}-${rand}${ext}`;
+    cb(null, safeName);
+  },
+});
+
+const uploadAudio = multer({
+  storage: audioStorage,
+  limits: {
+    fileSize: 20 * 1024 * 1024, // Tối đa 20MB theo BR10-3
+  },
+  fileFilter: (_req, file, cb) => {
+    const allowedMime = [
+      'audio/mpeg',
+      'audio/mp3',
+      'audio/wav',
+      'audio/x-wav',
+      'audio/ogg',
+      'audio/aac',
+      'audio/m4a',
+      'audio/x-m4a',
+    ];
+    if (
+      allowedMime.includes(file.mimetype.toLowerCase()) ||
+      file.mimetype.toLowerCase().startsWith('audio/') ||
+      file.originalname.match(/\.(mp3|wav|ogg|m4a|aac)$/i)
+    ) {
+      cb(null, true);
+    } else {
+      cb(new Error('Chỉ chấp nhận tệp âm thanh (MP3, WAV, OGG, M4A, AAC) dung lượng tối đa 20MB.'));
+    }
+  },
+});
+
+// Middleware xác thực Admin JWT (trả 401 khi thiếu JWT, hết hạn hoặc không hợp lệ)
 const requireAdmin = (req: Request, res: Response, next: NextFunction) => {
-  const token = req.headers.authorization?.replace('Bearer ', '') || '';
+  const token = req.headers.authorization?.replace('Bearer ', '').trim() || '';
   if (!token) {
-    return res.status(401).json({ success: false, error: 'Yêu cầu mã xác thực JWT.' });
+    return res.status(401).json({ success: false, error: 'Yêu cầu mã xác thực JWT trong tiêu đề Authorization.' });
   }
   const validation = authService.validateToken(token);
   if (!validation.valid) {
-    return res.status(401).json({ success: false, error: 'Yêu cầu quyền Quản trị viên (Admin).' });
+    return res.status(401).json({
+      success: false,
+      error: validation.message || 'Yêu cầu quyền Quản trị viên (Admin).',
+    });
   }
   next();
 };
@@ -196,6 +246,15 @@ router.put('/pois/:id', (req, res) => poiController.update(req, res));
 router.delete('/pois/:id', (req, res) => poiController.delete(req, res));
 router.post('/pois/:id/ai-translate', (req, res) => poiController.aiTranslate(req, res));
 router.put('/pois/:id/translations/:lang', (req, res) => poiController.saveTranslation(req, res));
+router.delete('/pois/:id/translations/:lang', requireAdmin, (req, res) => {
+  try {
+    const { id, lang } = req.params;
+    poiService.deleteTranslation(id, lang);
+    return res.json({ success: true, message: `Đã xóa bản dịch tiếng [${lang.toUpperCase()}] thành công.` });
+  } catch (err: any) {
+    return res.status(400).json({ success: false, error: err.message });
+  }
+});
 
 router.post('/pois/:id/translations/:lang/regenerate-audio', requireAdmin, async (req, res) => {
   try {
@@ -236,6 +295,61 @@ router.post('/admin/upload-image', requireAdmin, (req, res) => {
       message: 'Tải ảnh lên thành công.',
     });
   });
+});
+
+// =========================================================================
+// 5B. UPLOAD & QUẢN LÝ FILE AUDIO MP3 THỦ CÔNG (BR10-3, max 20MB)
+// =========================================================================
+router.post('/admin/upload-audio', requireAdmin, (req, res) => {
+  uploadAudio.single('audio')(req, res, (err: any) => {
+    if (err) {
+      return res.status(400).json({ success: false, error: err.message || 'Lỗi khi tải file âm thanh lên' });
+    }
+    if (!req.file) {
+      return res.status(400).json({ success: false, error: 'Vui lòng chọn một file âm thanh (MP3, WAV) hợp lệ.' });
+    }
+
+    const { poiId, lang, oldAudioUrl } = req.body || {};
+    if (!poiId || !lang) {
+      return res.status(400).json({ success: false, error: 'Thiếu thông tin poiId hoặc mã ngôn ngữ (lang).' });
+    }
+
+    if (oldAudioUrl && typeof oldAudioUrl === 'string' && oldAudioUrl.startsWith('/audio/manual-')) {
+      fileStorageService.deleteUploadedAudio(oldAudioUrl);
+    }
+
+    const publicUrl = `/audio/${req.file.filename}`;
+    try {
+      poiService.setCustomAudio(poiId, lang, publicUrl);
+      return res.json({
+        success: true,
+        audioUrl: publicUrl,
+        filename: req.file.filename,
+        size: req.file.size,
+        mimetype: req.file.mimetype,
+        message: 'Tải file âm thanh thủ công lên thành công.',
+      });
+    } catch (saveErr: any) {
+      return res.status(400).json({ success: false, error: saveErr.message });
+    }
+  });
+});
+
+router.post('/admin/remove-custom-audio', requireAdmin, (req, res) => {
+  const { poiId, lang } = req.body || {};
+  if (!poiId || !lang) {
+    return res.status(400).json({ success: false, error: 'Thiếu thông tin poiId hoặc lang.' });
+  }
+  try {
+    poiService.removeCustomAudio(poiId, lang);
+    return res.json({
+      success: true,
+      audioUrl: `/audio/${poiId}-${lang.toLowerCase()}.mp3`,
+      message: 'Đã hủy file audio thủ công và khôi phục âm thanh TTS tự động.',
+    });
+  } catch (err: any) {
+    return res.status(400).json({ success: false, error: err.message });
+  }
 });
 
 // =========================================================================

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { RichPOI, POITranslation } from '../server/types.js';
 import { LanguageCode, speechEngine } from '../utils/audioSpeech.js';
 import {
@@ -13,6 +13,12 @@ import {
   HelpCircle,
   Lock,
   Globe,
+  Upload,
+  Music,
+  Trash2,
+  Play,
+  Square,
+  Info,
 } from 'lucide-react';
 
 interface POIArticlePopupProps {
@@ -61,6 +67,20 @@ export const POIArticlePopup: React.FC<POIArticlePopupProps> = ({
   >([]);
   const [isRegeneratingAudio, setIsRegeneratingAudio] = useState(false);
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
+  const [isUploadingAudio, setIsUploadingAudio] = useState(false);
+  const [isDeletingTrans, setIsDeletingTrans] = useState(false);
+  const [isPlayingDirectAudio, setIsPlayingDirectAudio] = useState(false);
+  const audioFileInputRef = useRef<HTMLInputElement | null>(null);
+  const directAudioElementRef = useRef<HTMLAudioElement | null>(null);
+
+  // Stop direct audio if language changes
+  useEffect(() => {
+    if (directAudioElementRef.current) {
+      directAudioElementRef.current.pause();
+      directAudioElementRef.current = null;
+      setIsPlayingDirectAudio(false);
+    }
+  }, [selectedLang]);
 
   // Sync form data when switching language or POI
   useEffect(() => {
@@ -234,6 +254,140 @@ export const POIArticlePopup: React.FC<POIArticlePopupProps> = ({
       currentTrans?.audio_url,
       intro || currentTrans?.introduction
     );
+  };
+
+  // Upload file audio MP3 thủ công (BR10-3: tối đa 20MB)
+  const handleAudioFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 20 * 1024 * 1024) {
+      alert('Kích thước file audio vượt quá 20MB theo quy định (BR10-3). Vui lòng chọn tệp nhỏ hơn.');
+      if (audioFileInputRef.current) audioFileInputRef.current.value = '';
+      return;
+    }
+
+    const currentTrans = poi.translations[selectedLang];
+    setIsUploadingAudio(true);
+    const bodyData = new FormData();
+    bodyData.append('audio', file);
+    bodyData.append('poiId', poi.poi_id);
+    bodyData.append('lang', selectedLang);
+    if (currentTrans?.audio_url && currentTrans.audio_url.startsWith('/audio/manual-')) {
+      bodyData.append('oldAudioUrl', currentTrans.audio_url);
+    }
+
+    try {
+      const res = await fetch('/api/admin/upload-audio', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+        },
+        body: bodyData,
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error);
+
+      onShowNotify(`Đã tải lên file audio MP3 phòng thu thành công cho tiếng [${selectedLang.toUpperCase()}]!`);
+      onRefreshPOIs();
+    } catch (err: any) {
+      alert('Lỗi tải file audio: ' + err.message);
+    } finally {
+      setIsUploadingAudio(false);
+      if (audioFileInputRef.current) audioFileInputRef.current.value = '';
+    }
+  };
+
+  // Gỡ bỏ file audio thủ công và quay về file audio TTS tự động
+  const handleRemoveCustomAudio = async () => {
+    if (!window.confirm('Quý vị có chắc muốn gỡ bỏ file audio thủ công này và quay lại sử dụng giọng đọc AI TTS tự động?')) return;
+    try {
+      const res = await fetch('/api/admin/remove-custom-audio', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({
+          poiId: poi.poi_id,
+          lang: selectedLang,
+        }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error);
+
+      if (directAudioElementRef.current) {
+        directAudioElementRef.current.pause();
+        directAudioElementRef.current = null;
+        setIsPlayingDirectAudio(false);
+      }
+      onShowNotify('Đã hủy file audio thủ công và khôi phục âm thanh TTS tự động!');
+      onRefreshPOIs();
+    } catch (err: any) {
+      alert('Lỗi gỡ file audio: ' + err.message);
+    }
+  };
+
+  // Phát thử trực tiếp file audio thủ công vừa tải lên
+  const handleToggleDirectAudio = (url: string) => {
+    if (isPlayingDirectAudio && directAudioElementRef.current) {
+      directAudioElementRef.current.pause();
+      setIsPlayingDirectAudio(false);
+      return;
+    }
+
+    speechEngine.stop();
+    setIsPlayingAudio(false);
+
+    if (directAudioElementRef.current) {
+      directAudioElementRef.current.pause();
+    }
+
+    const audio = new Audio(url);
+    directAudioElementRef.current = audio;
+    audio.onended = () => setIsPlayingDirectAudio(false);
+    audio.onerror = () => {
+      setIsPlayingDirectAudio(false);
+      alert('Không thể phát file âm thanh này.');
+    };
+    audio.play().then(() => {
+      setIsPlayingDirectAudio(true);
+    }).catch((e) => {
+      console.warn('Direct audio play error:', e);
+      setIsPlayingDirectAudio(false);
+    });
+  };
+
+  // Xóa bản dịch của ngôn ngữ hiện tại (UC10 A2)
+  const handleDeleteTranslation = async () => {
+    if (selectedLang === 'vi') {
+      alert('Không thể xóa bản dịch tiếng Việt gốc.');
+      return;
+    }
+    const confirmDelete = window.confirm(
+      `Quý vị có chắc chắn muốn xóa bản dịch tiếng [${selectedLang.toUpperCase()}] của điểm này khỏi MongoDB?`
+    );
+    if (!confirmDelete) return;
+
+    setIsDeletingTrans(true);
+    try {
+      const res = await fetch(`/api/pois/${poi.poi_id}/translations/${selectedLang}`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+        },
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error);
+
+      onShowNotify(`Đã xóa bản dịch tiếng [${selectedLang.toUpperCase()}] thành công!`);
+      setSelectedLang('vi');
+      onRefreshPOIs();
+    } catch (err: any) {
+      alert('Lỗi khi xóa bản dịch: ' + err.message);
+    } finally {
+      setIsDeletingTrans(false);
+    }
   };
 
   return (
@@ -464,16 +618,105 @@ export const POIArticlePopup: React.FC<POIArticlePopupProps> = ({
               />
             </div>
 
+            {/* Audio Management & Manual MP3 Upload Section (UC10 A4, BR10-3) */}
+            <div className="p-3.5 bg-[#f7f9f6] rounded-xl border border-[#e2eae4] space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Music className="w-4 h-4 text-[#2d5a37]" />
+                  <span className="text-xs font-bold text-[#19231b]">
+                    Âm thanh thuyết minh ({selectedLang.toUpperCase()})
+                  </span>
+                  {poi.translations[selectedLang]?.audio_url?.startsWith('/audio/manual-') ? (
+                    <span className="text-[10px] font-bold text-blue-800 bg-blue-100 px-2 py-0.5 rounded-full border border-blue-300 flex items-center gap-1">
+                      <span>🎧 File MP3 thủ công (Phòng thu)</span>
+                    </span>
+                  ) : (
+                    <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full border border-emerald-300 flex items-center gap-1">
+                      <span>⚡ Giọng đọc AI TTS Web tự động</span>
+                    </span>
+                  )}
+                </div>
+
+                {/* Priority notice tag */}
+                <div className="text-[10px] text-[#5c7362] flex items-center gap-1 bg-white px-2 py-1 rounded-lg border border-[#e2eae4]">
+                  <Info className="w-3 h-3 text-[#2d5a37] flex-shrink-0" />
+                  <span>Ưu tiên: <b>1. TTS Web</b> ➔ <b>2. File MP3 thủ công</b> ➔ <b>3. Chip máy</b></span>
+                </div>
+              </div>
+
+              {/* Status and Action Buttons */}
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-[#e8efe9]">
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* Hidden Audio file input */}
+                  <input
+                    ref={audioFileInputRef}
+                    type="file"
+                    accept="audio/mpeg,audio/mp3,audio/wav,audio/ogg,audio/aac,audio/*"
+                    className="hidden"
+                    onChange={handleAudioFileChange}
+                  />
+
+                  {/* Button Upload MP3 */}
+                  <button
+                    type="button"
+                    onClick={() => audioFileInputRef.current?.click()}
+                    disabled={isUploadingAudio}
+                    className="px-3 py-1.5 rounded-xl bg-white border border-[#2d5a37] text-[#2d5a37] hover:bg-[#eef5f0] text-xs font-bold flex items-center gap-1.5 transition-colors disabled:opacity-50 shadow-xs"
+                    title="Tải lên tệp âm thanh phòng thu (MP3, WAV tối đa 20MB theo quy định BR10-3)"
+                  >
+                    <Upload className={`w-3.5 h-3.5 ${isUploadingAudio ? 'animate-bounce' : ''}`} />
+                    <span>{isUploadingAudio ? 'Đang tải file...' : 'Tải lên Audio MP3 (≤20MB)'}</span>
+                  </button>
+
+                  {/* If custom audio is uploaded, offer Direct Play & Remove Custom Audio buttons */}
+                  {poi.translations[selectedLang]?.audio_url?.startsWith('/audio/manual-') && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => handleToggleDirectAudio(poi.translations[selectedLang]!.audio_url!)}
+                        className="px-3 py-1.5 rounded-xl bg-blue-50 border border-blue-200 text-blue-700 hover:bg-blue-100 text-xs font-bold flex items-center gap-1.5 transition-colors"
+                        title="Nghe trực tiếp file MP3 vừa tải lên"
+                      >
+                        {isPlayingDirectAudio ? <Square className="w-3.5 h-3.5 fill-current" /> : <Play className="w-3.5 h-3.5 fill-current" />}
+                        <span>{isPlayingDirectAudio ? 'Dừng file MP3' : 'Nghe file MP3 đã tải'}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleRemoveCustomAudio}
+                        className="px-2.5 py-1.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 hover:bg-rose-100 text-xs font-semibold flex items-center gap-1 transition-colors"
+                        title="Hủy file tải lên thủ công để trở về sử dụng giọng đọc AI TTS tự động"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                        <span>Hủy file thủ công</span>
+                      </button>
+                    </>
+                  )}
+                </div>
+
+                <div className="text-[10px] text-[#7a8e80]">
+                  {poi.translations[selectedLang]?.audio_url ? (
+                    <span className="font-mono truncate max-w-[200px] inline-block" title={poi.translations[selectedLang]?.audio_url}>
+                      {poi.translations[selectedLang]?.audio_url?.split('/').pop()}
+                    </span>
+                  ) : (
+                    <span>Chưa có tệp âm thanh</span>
+                  )}
+                </div>
+              </div>
+            </div>
+
             {/* Audio actions for current language */}
             <div className="pt-3 border-t border-[#f0f3f1] flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
                   onClick={handlePlayAudio}
                   className="px-3.5 py-2 rounded-xl bg-[#eef5f0] hover:bg-[#d8ebd9] text-[#2d5a37] text-xs font-bold flex items-center gap-1.5 transition-colors"
+                  title="Phát thử âm thanh theo chuỗi ưu tiên (TTS Web -> File MP3 -> Chip thiết bị)"
                 >
                   {isPlayingAudio ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
-                  <span>{isPlayingAudio ? 'Dừng Nghe' : 'Nghe Thử'}</span>
+                  <span>{isPlayingAudio ? 'Dừng Nghe' : 'Nghe Thử (Theo Ưu Tiên)'}</span>
                 </button>
 
                 <button
@@ -486,6 +729,19 @@ export const POIArticlePopup: React.FC<POIArticlePopupProps> = ({
                   <RotateCcw className={`w-3.5 h-3.5 ${isRegeneratingAudio ? 'animate-spin' : 'text-[#2d5a37]'}`} />
                   <span>{isRegeneratingAudio ? 'Đang tạo Audio...' : 'Tạo lại Audio cho ngôn ngữ này'}</span>
                 </button>
+
+                {selectedLang !== 'vi' && (
+                  <button
+                    type="button"
+                    onClick={handleDeleteTranslation}
+                    disabled={isDeletingTrans}
+                    className="px-3.5 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                    title="Xóa bản dịch này khỏi CSDL (UC10 A2)"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>{isDeletingTrans ? 'Đang xóa...' : 'Xóa bản dịch này'}</span>
+                  </button>
+                )}
               </div>
 
               <div className="flex items-center gap-2">

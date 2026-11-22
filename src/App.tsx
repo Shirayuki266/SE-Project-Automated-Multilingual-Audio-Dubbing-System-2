@@ -116,34 +116,102 @@ export default function App() {
     mindfulness: false,
   });
 
+  // PWA & Offline State
+  const [isOffline, setIsOffline] = useState<boolean>(
+    typeof navigator !== 'undefined' ? !navigator.onLine : false
+  );
+  const [isUsingCachedData, setIsUsingCachedData] = useState<boolean>(false);
+  const [offlineError, setOfflineError] = useState<string | null>(null);
+  const [cacheTimestamp, setCacheTimestamp] = useState<number | null>(null);
+
   const t = translations[currentLang];
 
-  // Fetch POIs from backend API
-  const fetchPOIs = async () => {
-    try {
-      const res = await fetch('/api/pois');
-      const data = await res.json();
-      if (data.success && Array.isArray(data.data)) {
-        setPois(data.data);
-        if (!activePOI && data.data.length > 0) {
-          const params = new URLSearchParams(window.location.search);
-          const requestedCode = params.get('poi');
-          if (requestedCode) {
-            const found = data.data.find(
-              (p: RichPOI) =>
-                p.code.toLowerCase() === requestedCode.toLowerCase() ||
-                p.poi_id.toLowerCase() === requestedCode.toLowerCase()
-            );
-            if (found) {
-              setActivePOI(found);
-              return;
-            }
-          }
-          setActivePOI(data.data[0]);
+  // Helper áp dụng danh sách POIs (và chọn active POI phù hợp theo URL)
+  const applyPOIData = (data: RichPOI[]) => {
+    setPois(data);
+    if (!activePOI && data.length > 0) {
+      const params = new URLSearchParams(window.location.search);
+      const requestedCode = params.get('poi');
+      if (requestedCode) {
+        const found = data.find(
+          (p: RichPOI) =>
+            p.code.toLowerCase() === requestedCode.toLowerCase() ||
+            p.poi_id.toLowerCase() === requestedCode.toLowerCase()
+        );
+        if (found) {
+          setActivePOI(found);
+          return;
         }
       }
-    } catch (e) {
-      console.warn('Failed to fetch POIs:', e);
+      setActivePOI(data[0]);
+    }
+  };
+
+  // Fetch POIs with PWA Offline Cache Strategy (NetworkFirst + localStorage fallback)
+  const fetchPOIs = async () => {
+    const CACHE_KEY = 'vnqt_cached_pois';
+
+    // Helper: Đọc dữ liệu từ localStorage làm cứu cánh khi ngoại tuyến hoặc mất kết nối
+    const loadFromLocalStorageFallback = (): boolean => {
+      try {
+        const cachedRaw = localStorage.getItem(CACHE_KEY);
+        if (cachedRaw) {
+          const parsed = JSON.parse(cachedRaw) as { data: RichPOI[]; timestamp?: number };
+          if (Array.isArray(parsed.data) && parsed.data.length > 0) {
+            applyPOIData(parsed.data);
+            setIsUsingCachedData(true);
+            setCacheTimestamp(parsed.timestamp || null);
+            setOfflineError(null);
+            console.log(`📦 [PWA] Đã nạp ${parsed.data.length} điểm chiêm bái từ bộ nhớ đệm ngoại tuyến (localStorage).`);
+            return true;
+          }
+        }
+      } catch (cacheErr) {
+        console.warn('⚠️ Lỗi giải mã bộ nhớ đệm localStorage vnqt_cached_pois:', cacheErr);
+      }
+      return false;
+    };
+
+    // 1. Kiểm tra trạng thái ngoại tuyến của trình duyệt
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      setIsOffline(true);
+      const hasCached = loadFromLocalStorageFallback();
+      if (!hasCached) {
+        setOfflineError('Thiết bị đang ngắt kết nối Internet và chưa có dữ liệu chiêm bái lưu sẵn. Vui lòng kết nối mạng để tải dữ liệu lần đầu.');
+      }
+      return;
+    }
+
+    // 2. Trình duyệt đang Online -> Ưu tiên gọi API máy chủ
+    try {
+      const res = await fetch('/api/pois');
+      if (!res.ok) throw new Error(`Máy chủ phản hồi mã lỗi HTTP ${res.status}`);
+      const data = await res.json();
+
+      if (data.success && Array.isArray(data.data) && data.data.length > 0) {
+        applyPOIData(data.data);
+        setIsUsingCachedData(false);
+        setOfflineError(null);
+
+        // Lưu vào localStorage làm cache ngoại tuyến kèm mốc thời gian (timestamp)
+        try {
+          const cachePayload = {
+            data: data.data,
+            timestamp: Date.now(),
+          };
+          localStorage.setItem(CACHE_KEY, JSON.stringify(cachePayload));
+        } catch (saveErr) {
+          console.warn('⚠️ Không thể lưu cache vào localStorage (bộ nhớ đầy hoặc bị hạn chế):', saveErr);
+        }
+      } else {
+        throw new Error('Định dạng dữ liệu POI từ API không hợp lệ');
+      }
+    } catch (e: any) {
+      console.warn('⚠️ Không thể kết nối API máy chủ, tự động kích hoạt bộ nhớ đệm ngoại tuyến:', e.message);
+      const hasCached = loadFromLocalStorageFallback();
+      if (!hasCached) {
+        setOfflineError('Không thể tải dữ liệu điểm chiêm bái từ máy chủ và chưa có bản lưu ngoại tuyến. Vui lòng kiểm tra lại đường truyền mạng.');
+      }
     }
   };
 
@@ -196,6 +264,26 @@ export default function App() {
         })
         .catch(() => {});
     });
+  }, []);
+
+  // Lắng nghe sự kiện Online / Offline của trình duyệt để tự cập nhật trạng thái kết nối
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOffline(false);
+      fetchPOIs();
+      fetchVisitorStats();
+    };
+    const handleOffline = () => {
+      setIsOffline(true);
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
   }, []);
 
   // One-time User Gesture Autoplay Primer: unlocks mobile audio hardware session on first touch/click
@@ -439,6 +527,40 @@ export default function App() {
 
       {/* Main Viewport Container */}
       <main className="flex-1 max-w-4xl w-full mx-auto px-4 sm:px-6 pt-3 pb-36 space-y-5">
+        {/* PWA Offline / Cached Data Notification Banner */}
+        {(isOffline || isUsingCachedData) && (
+          <div className="bg-[#fffbe6] border border-[#ffe58f] text-[#874d00] px-4 py-2.5 rounded-2xl text-xs flex items-center justify-between shadow-xs">
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-[#faad14] animate-ping" />
+              <span className="font-semibold">
+                {isOffline
+                  ? '⚡ Chế độ ngoại tuyến: Đang sử dụng dữ liệu 8 điểm chiêm bái lưu sẵn trên thiết bị (PWA Offline).'
+                  : '📦 Đang sử dụng dữ liệu lưu đệm ngoại tuyến.'}
+              </span>
+            </div>
+            {cacheTimestamp && (
+              <span className="text-[11px] text-[#ad6800] hidden sm:inline font-mono">
+                Lưu lúc: {new Date(cacheTimestamp).toLocaleTimeString('vi-VN')}
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* Offline Error Alert (nếu không có cả mạng lẫn cache) */}
+        {offlineError && (
+          <div className="bg-[#fff2f0] border border-[#ffccc7] text-[#cf1322] px-4 py-3 rounded-2xl text-xs sm:text-sm flex items-center justify-between shadow-xs">
+            <div className="flex items-center gap-2">
+              <span className="text-base">⚠️</span>
+              <span>{offlineError}</span>
+            </div>
+            <button
+              onClick={() => fetchPOIs()}
+              className="ml-3 px-3 py-1 bg-[#cf1322] text-white rounded-lg text-xs font-bold hover:bg-[#a8071a] transition-colors flex-shrink-0"
+            >
+              Thử lại
+            </button>
+          </div>
+        )}
         {/* Geofence Detection Toast Notification with Touch-to-Play User Gesture */}
         {geofenceToast && (
           <div

@@ -51,6 +51,10 @@ export class POIRepository {
     db.saveTranslation(trans);
   }
 
+  public deleteTranslation(poiId: string, lang: string): boolean {
+    return db.deleteTranslation(poiId, lang);
+  }
+
   public addMedia(media: any): any {
     return db.addMedia(media);
   }
