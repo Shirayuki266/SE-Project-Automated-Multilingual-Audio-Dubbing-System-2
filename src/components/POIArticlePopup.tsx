@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { RichPOI, POITranslation } from '../server/types.js';
 import { LanguageCode, speechEngine } from '../utils/audioSpeech.js';
+import { SUPPORTED_LANGUAGES } from '../config/languages.js';
 import {
   X,
   Sparkles,
@@ -13,6 +14,8 @@ import {
   HelpCircle,
   Lock,
   Globe,
+  Upload,
+  Trash2,
 } from 'lucide-react';
 
 interface POIArticlePopupProps {
@@ -22,21 +25,6 @@ interface POIArticlePopupProps {
   onRefreshPOIs: () => void;
   onShowNotify: (msg: string) => void;
 }
-
-const SUPPORTED_LANGUAGES: { code: LanguageCode; label: string; flag: string }[] = [
-  { code: 'vi', label: 'Tiếng Việt (Gốc)', flag: '🇻🇳' },
-  { code: 'en', label: 'English', flag: '🇬🇧' },
-  { code: 'zh', label: '中文 (Chinese)', flag: '🇨🇳' },
-  { code: 'ja', label: '日本語 (Japanese)', flag: '🇯🇵' },
-  { code: 'ko', label: '한국어 (Korean)', flag: '🇰🇷' },
-  { code: 'fr', label: 'Français (French)', flag: '🇫🇷' },
-  { code: 'de', label: 'Deutsch (German)', flag: '🇩🇪' },
-  { code: 'es', label: 'Español (Spanish)', flag: '🇪🇸' },
-  { code: 'ru', label: 'Русский (Russian)', flag: '🇷🇺' },
-  { code: 'th', label: 'ไทย (Thai)', flag: '🇹🇭' },
-  { code: 'id', label: 'Bahasa Indonesia', flag: '🇮🇩' },
-  { code: 'hi', label: 'हिन्दी (Hindi)', flag: '🇮🇳' },
-];
 
 export const POIArticlePopup: React.FC<POIArticlePopupProps> = ({
   poi,
@@ -49,35 +37,38 @@ export const POIArticlePopup: React.FC<POIArticlePopupProps> = ({
   const [title, setTitle] = useState('');
   const [intro, setIntro] = useState('');
   const [desc, setDesc] = useState('');
+  const [audioUrl, setAudioUrl] = useState('');
+  const [mediaItems, setMediaItems] = useState(poi.media || []);
   const [isManuallyEdited, setIsManuallyEdited] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
-  // AI & Audio states
+  // AI, audio, and media states
   const [isSaving, setIsSaving] = useState(false);
-  const [isLocalizingAll, setIsLocalizingAll] = useState(false);
-  const [localizeProgressMsg, setLocalizeProgressMsg] = useState('');
-  const [localizeStatuses, setLocalizeStatuses] = useState<
-    Array<{ lang: string; label: string; status: 'success' | 'skipped_manual' | 'failed'; audioGenerated: boolean; error?: string }>
-  >([]);
+  const [isGeneratingDraft, setIsGeneratingDraft] = useState(false);
   const [isRegeneratingAudio, setIsRegeneratingAudio] = useState(false);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [isUploadingAudio, setIsUploadingAudio] = useState(false);
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const audioInputRef = useRef<HTMLInputElement | null>(null);
 
   // Sync form data when switching language or POI
   useEffect(() => {
     const trans: POITranslation | undefined = poi.translations[selectedLang];
-    const viTrans: POITranslation | undefined = poi.translations['vi'];
-
     if (trans) {
       setTitle(trans.title || '');
       setIntro(trans.introduction || '');
       setDesc(trans.description || '');
+      setAudioUrl(trans.audio_url || '');
       setIsManuallyEdited(Boolean(trans.is_manually_edited));
     } else {
-      setTitle(selectedLang === 'vi' ? poi.code : `${viTrans?.title || poi.code} (${selectedLang.toUpperCase()})`);
-      setIntro(viTrans?.introduction || '');
-      setDesc(viTrans?.description || '');
+      setTitle('');
+      setIntro('');
+      setDesc('');
+      setAudioUrl('');
       setIsManuallyEdited(false);
     }
+    setMediaItems(poi.media || []);
     setHasUnsavedChanges(false);
   }, [selectedLang, poi]);
 
@@ -120,6 +111,7 @@ export const POIArticlePopup: React.FC<POIArticlePopupProps> = ({
           title: title.trim(),
           introduction: intro.trim(),
           description: desc.trim(),
+          audio_url: audioUrl || undefined,
           is_manually_edited: isManuallyEdited,
         }),
       });
@@ -136,50 +128,147 @@ export const POIArticlePopup: React.FC<POIArticlePopupProps> = ({
     }
   };
 
-  // 1-Click AI Localization (12 Languages + TTS)
-  const handle1ClickLocalization = async () => {
-    const viTitle = selectedLang === 'vi' ? title : poi.translations['vi']?.title;
-    const viIntro = selectedLang === 'vi' ? intro : poi.translations['vi']?.introduction;
-    const viDesc = selectedLang === 'vi' ? desc : poi.translations['vi']?.description;
+  const handleGenerateDraft = async () => {
+    setIsGeneratingDraft(true);
+    try {
+      const res = await fetch(`/api/pois/${poi.poi_id}/translations/${selectedLang}/draft`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+        },
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Không thể kết nối AI lúc này, vui lòng nhập nội dung dịch thủ công');
+      }
+      setTitle(data.data.title);
+      setIntro(data.data.introduction || '');
+      setDesc(data.data.description);
+      setIsManuallyEdited(false);
+      setHasUnsavedChanges(true);
+      onShowNotify('AI đã tạo bản nháp. Vui lòng rà soát và bấm Lưu để xuất bản.');
+    } catch (err: any) {
+      alert(err.message || 'Không thể kết nối AI lúc này, vui lòng nhập nội dung dịch thủ công');
+    } finally {
+      setIsGeneratingDraft(false);
+    }
+  };
 
-    if (!viTitle || !viDesc) {
-      alert('Vui lòng hoàn thiện Tiêu đề và Nội dung gốc Tiếng Việt trước khi dịch 12 ngôn ngữ.');
+  const handleDeleteTranslation = async () => {
+    if (!window.confirm('Bạn có chắc chắn muốn xóa bản dịch ngôn ngữ này?')) return;
+    try {
+      const res = await fetch(`/api/pois/${poi.poi_id}/translations/${selectedLang}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'Không thể xóa bản dịch.');
+      setSelectedLang('vi');
+      setHasUnsavedChanges(false);
+      onShowNotify('Đã xóa bản dịch thành công.');
+      onRefreshPOIs();
+    } catch (err: any) {
+      alert('Lỗi xóa bản dịch: ' + err.message);
+    }
+  };
+
+  const handleImageFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      alert('Chỉ chấp nhận ảnh JPG, PNG hoặc WebP.');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      alert('Kích thước ảnh vượt quá 5MB, vui lòng nén ảnh trước khi tải lên');
       return;
     }
 
-    setIsLocalizingAll(true);
-    setLocalizeStatuses([]);
-    setLocalizeProgressMsg('Đang gửi prompt cấu trúc sang Gemini 2.5 Flash để dịch 12 ngôn ngữ & sinh file Audio...');
-
+    setIsUploadingImage(true);
     try {
-      const res = await fetch('/api/admin/localize-all', {
+      const body = new FormData();
+      body.append('image', file);
+      const uploadResponse = await fetch('/api/admin/upload-image', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${authToken}` },
+        body,
+      });
+      const uploaded = await uploadResponse.json();
+      if (!uploadResponse.ok || !uploaded.success) {
+        throw new Error(uploaded.error || 'Không thể tải ảnh lên.');
+      }
+
+      const mediaResponse = await fetch(`/api/pois/${poi.poi_id}/media`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${authToken}`,
         },
-        body: JSON.stringify({
-          poiId: poi.poi_id,
-          title_vi: viTitle,
-          intro_vi: viIntro,
-          description_vi: viDesc,
-          generateAudio: true,
-        }),
+        body: JSON.stringify({ image_url: uploaded.imageUrl, caption_vi: title || poi.code }),
       });
-
-      const data = await res.json();
-      if (!data.success) throw new Error(data.message || data.error);
-
-      if (Array.isArray(data.languageStatuses)) {
-        setLocalizeStatuses(data.languageStatuses);
+      const media = await mediaResponse.json();
+      if (!mediaResponse.ok || !media.success) {
+        throw new Error(media.error || 'Không thể gắn ảnh vào POI.');
       }
-      onShowNotify(data.message || 'Đã tạo thành công 12 ngôn ngữ và Audio MP3!');
+      setMediaItems((items) => [...items, media.data.media]);
+      onShowNotify('Đã tải và lưu ảnh media cho POI.');
       onRefreshPOIs();
     } catch (err: any) {
-      alert('Lỗi tạo đa ngôn ngữ bằng AI: ' + err.message);
+      alert('Lỗi tải ảnh: ' + err.message);
     } finally {
-      setIsLocalizingAll(false);
-      setLocalizeProgressMsg('');
+      setIsUploadingImage(false);
+    }
+  };
+
+  const handleAudioFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith('.mp3')) {
+      alert('Chỉ chấp nhận file âm thanh MP3.');
+      return;
+    }
+    if (file.size > 20 * 1024 * 1024) {
+      alert('Kích thước audio vượt quá 20MB.');
+      return;
+    }
+
+    setIsUploadingAudio(true);
+    try {
+      const body = new FormData();
+      body.append('audio', file);
+      const res = await fetch('/api/admin/upload-audio', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${authToken}` },
+        body,
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'Không thể tải audio lên.');
+      setAudioUrl(data.audioUrl);
+      setHasUnsavedChanges(true);
+      onShowNotify('Đã tải audio lên. Bấm Lưu để gắn audio vào bản dịch.');
+    } catch (err: any) {
+      alert('Lỗi tải audio: ' + err.message);
+    } finally {
+      setIsUploadingAudio(false);
+    }
+  };
+
+  const handleDeleteMedia = async (mediaId: string) => {
+    if (!window.confirm('Bạn có chắc chắn muốn xóa ảnh media này?')) return;
+    try {
+      const res = await fetch(`/api/pois/${poi.poi_id}/media/${mediaId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'Không thể xóa ảnh.');
+      setMediaItems((items) => items.filter((item) => item.media_id !== mediaId));
+      onShowNotify('Đã xóa ảnh media.');
+      onRefreshPOIs();
+    } catch (err: any) {
+      alert('Lỗi xóa ảnh: ' + err.message);
     }
   };
 
@@ -282,106 +371,65 @@ export const POIArticlePopup: React.FC<POIArticlePopupProps> = ({
           </div>
         </div>
 
-        {/* 12+1 Language Navigation Tabs */}
-        <div className="px-5 py-2.5 border-b border-[#e2eae4] bg-white overflow-x-auto no-scrollbar flex items-center gap-1.5 flex-shrink-0">
-          {SUPPORTED_LANGUAGES.map((lang) => {
-            const hasData = Boolean(poi.translations[lang.code]?.description);
-            const hasAudio = Boolean(poi.translations[lang.code]?.audio_url);
-            const isManual = Boolean(poi.translations[lang.code]?.is_manually_edited);
-            const isSelected = selectedLang === lang.code;
+        {/* Translation language tabs and add-language control */}
+        <div className="px-5 py-2.5 border-b border-[#e2eae4] bg-white flex flex-wrap items-center gap-1.5 flex-shrink-0">
+          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+            {SUPPORTED_LANGUAGES.map((lang) => {
+              const hasData = Boolean(poi.translations[lang.code]?.description);
+              const hasAudio = Boolean(poi.translations[lang.code]?.audio_url);
+              const isManual = Boolean(poi.translations[lang.code]?.is_manually_edited);
+              const isSelected = selectedLang === lang.code;
 
-            return (
-              <button
-                key={lang.code}
-                type="button"
-                onClick={() => setSelectedLang(lang.code)}
-                className={`px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1.5 border ${
-                  isSelected
-                    ? 'bg-[#2d5a37] text-white border-[#2d5a37] shadow-xs'
-                    : 'bg-[#f7f9f6] text-[#5c7362] border-[#e2eae4] hover:bg-[#eef5f0]'
-                }`}
-              >
-                <span>{lang.flag}</span>
-                <span>{lang.code.toUpperCase()}</span>
-                {hasData && hasAudio && (
-                  <span
-                    className={`w-3.5 h-3.5 rounded-full flex items-center justify-center text-[9px] ${
-                      isSelected ? 'bg-white text-[#2d5a37]' : 'bg-emerald-100 text-emerald-800'
-                    }`}
-                    title="Đã có bài viết & file audio"
-                  >
-                    ✓
-                  </span>
-                )}
-                {isManual && (
-                  <span
-                    className={`text-[9px] font-bold px-1 rounded-sm ${
-                      isSelected ? 'bg-white/20 text-white' : 'bg-amber-100 text-amber-800'
-                    }`}
-                    title="Đã chỉnh tay (Được bảo vệ khỏi AI ghi đè)"
-                  >
-                    Tay
-                  </span>
-                )}
-              </button>
-            );
-          })}
+              return (
+                <button
+                  key={lang.code}
+                  type="button"
+                  onClick={() => setSelectedLang(lang.code)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1.5 border ${
+                    isSelected
+                      ? 'bg-[#2d5a37] text-white border-[#2d5a37] shadow-xs'
+                      : 'bg-[#f7f9f6] text-[#5c7362] border-[#e2eae4] hover:bg-[#eef5f0]'
+                  }`}
+                >
+                  <span>{lang.flag}</span>
+                  <span>{lang.code.toUpperCase()}</span>
+                  {hasData && hasAudio && <span title="Đã có bài viết & file audio">✓</span>}
+                  {isManual && <span title="Bản dịch đã được Admin chỉnh sửa">Tay</span>}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         {/* Main Body Form */}
         <div className="p-5 sm:p-6 overflow-y-auto flex-1 space-y-5 bg-[#fafcfa]">
-          {/* AI 1-Click Banner Action */}
+          {/* AI translation draft */}
           <div className="bg-gradient-to-r from-emerald-50 via-teal-50 to-white rounded-2xl p-4 border border-[#d6e7da] flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
             <div className="space-y-0.5">
               <div className="flex items-center gap-2">
                 <span className="font-bold text-xs text-[#1e3d25] flex items-center gap-1">
                   <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-                  <span>Tự Động Hóa 12 Ngôn Ngữ & Audio MP3</span>
+                  <span>Tạo bản dịch AI cho {selectedLang.toUpperCase()}</span>
                 </span>
                 <span className="text-[10px] bg-[#2d5a37] text-white px-2 py-0.2 rounded-full font-bold">
-                  Gemini 2.5 Flash
+                  Gemini
                 </span>
               </div>
               <p className="text-xs text-[#5c7362] leading-relaxed">
-                Tự động dịch kịch bản gốc sang 12 thứ tiếng, loại bỏ markdown, phiên âm tên riêng và tự động bỏ qua các bản dịch đã chỉnh tay.
+                Bản dịch được điền vào biểu mẫu để Admin rà soát. Chỉ lưu khi bấm nút Lưu nội dung.
               </p>
             </div>
 
             <button
               type="button"
-              onClick={handle1ClickLocalization}
-              disabled={isLocalizingAll}
+              onClick={handleGenerateDraft}
+              disabled={isGeneratingDraft || selectedLang === 'vi'}
               className="px-4 py-2 rounded-full bg-[#2d5a37] hover:bg-[#1e3d25] text-white disabled:opacity-50 text-xs font-bold shadow-xs flex items-center justify-center gap-1.5 transition-all flex-shrink-0"
             >
-              <Sparkles className={`w-3.5 h-3.5 ${isLocalizingAll ? 'animate-spin' : 'text-amber-300'}`} />
-              <span>{isLocalizingAll ? 'Đang xử lý...' : 'Tạo đa ngôn ngữ & Audio bằng AI'}</span>
+              <Sparkles className={`w-3.5 h-3.5 ${isGeneratingDraft ? 'animate-spin' : 'text-amber-300'}`} />
+              <span>{isGeneratingDraft ? 'Đang dịch...' : 'Tạo bản dịch tự động bằng AI'}</span>
             </button>
           </div>
-
-          {/* Progress bar and language statuses if active */}
-          {(isLocalizingAll || localizeProgressMsg) && (
-            <div className="p-3 bg-white rounded-2xl border border-emerald-300 text-xs text-[#2d5a37] flex items-center gap-2 animate-pulse">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-600 animate-ping" />
-              <span className="font-medium">{localizeProgressMsg}</span>
-            </div>
-          )}
-
-          {localizeStatuses.length > 0 && (
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-3 bg-white rounded-2xl border border-[#e2eae4]">
-              {localizeStatuses.map((st) => (
-                <div key={st.lang} className="flex items-center justify-between p-2 rounded-xl bg-[#f7f9f6] text-xs">
-                  <span className="font-bold text-[#19231b]">{st.label}</span>
-                  {st.status === 'success' ? (
-                    <span className="text-emerald-700 font-bold">✓ Thành công</span>
-                  ) : st.status === 'skipped_manual' ? (
-                    <span className="text-amber-700 font-bold">Giữ bản tay</span>
-                  ) : (
-                    <span className="text-rose-600 font-bold" title={st.error}>Thất bại</span>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
 
           {/* Language Form */}
           <div className="bg-white rounded-2xl p-4 sm:p-5 border border-[#e2eae4] shadow-xs space-y-4">
@@ -397,20 +445,16 @@ export const POIArticlePopup: React.FC<POIArticlePopupProps> = ({
                   </span>
                 )}
               </div>
-
-              {/* Checkbox "Đánh dấu chỉnh tay" */}
-              <label className="flex items-center gap-2 text-xs font-semibold text-[#2d5a37] cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={isManuallyEdited}
-                  onChange={(e) => {
-                    setIsManuallyEdited(e.target.checked);
-                    setHasUnsavedChanges(true);
-                  }}
-                  className="rounded text-[#2d5a37] focus:ring-[#2d5a37]"
-                />
-                <span>Đánh dấu chỉnh tay (Khóa khỏi AI ghi đè)</span>
-              </label>
+              {poi.translations[selectedLang] && (
+                <button
+                  type="button"
+                  onClick={handleDeleteTranslation}
+                  className="px-3 py-1.5 rounded-lg bg-rose-50 text-rose-700 text-xs font-bold flex items-center gap-1"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  Xóa bản dịch này
+                </button>
+              )}
             </div>
 
             {/* Title */}
@@ -476,6 +520,23 @@ export const POIArticlePopup: React.FC<POIArticlePopupProps> = ({
                   <span>{isPlayingAudio ? 'Dừng Nghe' : 'Nghe Thử'}</span>
                 </button>
 
+                <input
+                  ref={audioInputRef}
+                  type="file"
+                  accept=".mp3,audio/mpeg"
+                  onChange={handleAudioFileChange}
+                  className="hidden"
+                />
+                <button
+                  type="button"
+                  onClick={() => audioInputRef.current?.click()}
+                  disabled={isUploadingAudio}
+                  className="px-3.5 py-2 rounded-xl bg-white border border-[#e2eae4] text-[#19231b] disabled:opacity-50 text-xs font-bold flex items-center gap-1.5"
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  {isUploadingAudio ? 'Đang tải...' : 'Upload file audio MP3'}
+                </button>
+
                 <button
                   type="button"
                   onClick={handleRegenerateAudio}
@@ -496,11 +557,57 @@ export const POIArticlePopup: React.FC<POIArticlePopupProps> = ({
                   className="px-5 py-2 rounded-full bg-[#2d5a37] hover:bg-[#1e3d25] text-white disabled:opacity-50 text-xs font-bold shadow-xs flex items-center gap-1.5 transition-all"
                 >
                   <Save className="w-3.5 h-3.5" />
-                  <span>{isSaving ? 'Đang lưu...' : 'Lưu Vào MongoDB'}</span>
+                  <span>{isSaving ? 'Đang lưu...' : 'Lưu nội dung'}</span>
                 </button>
               </div>
             </div>
+            <p className="text-[11px] text-[#7a8e80]">File MP3 tối đa 20MB. Audio mới chỉ được gắn với bản dịch sau khi bấm Lưu nội dung.</p>
+            {audioUrl && <audio controls src={audioUrl} className="w-full" />}
           </div>
+
+          <section className="bg-white rounded-2xl p-4 sm:p-5 border border-[#e2eae4] shadow-xs space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-bold text-[#19231b]">Media của điểm POI</h3>
+                <p className="text-xs text-[#7a8e80]">Ảnh JPG, PNG hoặc WebP; dung lượng tối đa 5MB.</p>
+              </div>
+              <input
+                ref={imageInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                onChange={handleImageFileChange}
+                className="hidden"
+              />
+              <button
+                type="button"
+                onClick={() => imageInputRef.current?.click()}
+                disabled={isUploadingImage}
+                className="px-3.5 py-2 rounded-xl bg-[#2d5a37] text-white disabled:opacity-50 text-xs font-bold flex items-center gap-1.5"
+              >
+                <Upload className="w-3.5 h-3.5" />
+                {isUploadingImage ? 'Đang tải ảnh...' : 'Tải lên hình ảnh'}
+              </button>
+            </div>
+            {mediaItems.length > 0 ? (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {mediaItems.map((media) => (
+                  <div key={media.media_id} className="relative rounded-xl overflow-hidden border border-[#e2eae4]">
+                    <img src={media.image_url} alt={media.caption_vi || 'Ảnh POI'} className="w-full h-28 object-cover" />
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteMedia(media.media_id)}
+                      className="absolute top-2 right-2 p-1.5 rounded-full bg-black/70 text-white"
+                      aria-label="Xóa ảnh media"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-[#7a8e80]">Chưa có ảnh media cho POI này.</p>
+            )}
+          </section>
         </div>
 
         {/* Bottom Footer Info */}

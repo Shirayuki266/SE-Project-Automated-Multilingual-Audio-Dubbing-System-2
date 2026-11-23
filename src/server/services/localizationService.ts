@@ -154,6 +154,61 @@ export class LocalizationService {
     };
   }
 
+  public async generateTranslationDraft(poiId: string, targetLang: string) {
+    const poi = db.getRichPOIById(poiId);
+    if (!poi) {
+      throw new Error(`Không tìm thấy điểm POI với mã "${poiId}".`);
+    }
+
+    const language = SUPPORTED_LANGUAGES.find((item) => item.code === targetLang.toLowerCase());
+    if (!language || language.isSourceDefault) {
+      throw new Error('Mã ngôn ngữ đích không hợp lệ.');
+    }
+    if (!this.ai) {
+      throw new Error('Dịch vụ Gemini chưa được cấu hình.');
+    }
+
+    const source = poi.translations.vi;
+    if (!source?.title || !source.description) {
+      throw new Error('POI chưa có nội dung tiếng Việt để dịch.');
+    }
+
+    try {
+      const response = await this.ai.models.generateContent({
+        model: 'gemini-3.8-flash',
+        contents: `Bạn là dịch giả và chuyên gia văn hóa Phật giáo Việt Nam Quốc Tự.
+Dịch nội dung tiếng Việt sau sang ${language.label}. Bảo toàn ý nghĩa, giọng văn trang trọng và các thuật ngữ Phật giáo/tên riêng; không tự thêm thông tin.
+Chỉ trả về JSON gồm đúng ba trường: title, introduction, description.
+
+Tiêu đề: ${source.title}
+Tóm tắt: ${source.introduction || ''}
+Bài thuyết minh: ${source.description}`,
+        config: {
+          responseMimeType: 'application/json',
+          temperature: 0.3,
+        },
+      });
+
+      const draft = JSON.parse(response.text || '{}') as {
+        title?: string;
+        introduction?: string;
+        description?: string;
+      };
+      if (!draft.title?.trim() || !draft.description?.trim()) {
+        throw new Error('AI không trả về đủ nội dung bản dịch.');
+      }
+
+      return {
+        title: draft.title.trim(),
+        introduction: draft.introduction?.trim() || '',
+        description: draft.description.trim(),
+      };
+    } catch (error) {
+      console.error('[LocalizationService] Translation draft failed:', error);
+      throw error;
+    }
+  }
+
   /**
    * 1-Click AI Localization:
    * - Uses centralized SUPPORTED_LANGUAGES config (12 target languages).
