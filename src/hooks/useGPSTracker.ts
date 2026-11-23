@@ -18,8 +18,7 @@ export interface UserLocationState {
 export function useGPSTracker(
   pois: RichPOI[],
   onGeofenceEnter?: (poi: RichPOI, distance: number) => void,
-  activePoiId?: string | null,
-  isAudioPlaying?: boolean
+  activePoiId?: string | null
 ) {
   // Default centered at Cổng Tam Quan, Việt Nam Quốc Tự
   const [userLocation, setUserLocation] = useState<UserLocationState>({
@@ -38,20 +37,15 @@ export function useGPSTracker(
   const currentBestPoiIdRef = useRef<string | null>(null);
   const onGeofenceEnterRef = useRef(onGeofenceEnter);
   onGeofenceEnterRef.current = onGeofenceEnter;
-  const isAudioPlayingRef = useRef(isAudioPlaying);
-  isAudioPlayingRef.current = isAudioPlaying;
   const activePoiIdRef = useRef(activePoiId);
   activePoiIdRef.current = activePoiId;
 
-  // Check geofence entry and trigger auto-narration using hierarchical resolution:
-  // priority -> d/radius -> distance -> display_order, with locking and hysteresis
+  // Select the nearest eligible POI, using priority and display order as tie-breakers.
   const evaluateGeofences = useCallback(
     (currentLat: number, currentLng: number) => {
       const best = selectBestCandidatePOI(pois, currentLat, currentLng, {
         currentPoiId: activePoiIdRef.current || currentBestPoiIdRef.current,
-        isPlaying: Boolean(isAudioPlayingRef.current),
         hysteresisBufferMeters: 8,
-        switchRatioMargin: 0.15,
       });
 
       if (best) {

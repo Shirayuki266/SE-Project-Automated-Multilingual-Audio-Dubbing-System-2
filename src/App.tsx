@@ -86,7 +86,6 @@ export default function App() {
   // Search & Filter state
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
-  const [autoNarrationEnabled, setAutoNarrationEnabled] = useState<boolean>(false);
   const [todayStartsCount, setTodayStartsCount] = useState<number>(1);
   const [uniquePilgrimsCount, setUniquePilgrimsCount] = useState<number>(1);
 
@@ -107,7 +106,6 @@ export default function App() {
 
   // Geofence alert toast
   const [geofenceToast, setGeofenceToast] = useState<{ poi: RichPOI; distance: number } | null>(null);
-  const lastAutoSpokenPoiId = useRef<string | null>(null);
 
   // Checklist items for Screen 3
   const [checklist, setChecklist] = useState({
@@ -362,26 +360,22 @@ export default function App() {
   // Handle Geofence Entry Callback from GPS Tracker
   const handleGeofenceEnter = useCallback(
     (poi: RichPOI, distance: number) => {
-      setGeofenceToast({ poi, distance });
-      setTimeout(() => setGeofenceToast(null), 6000);
-
-      // Only auto-trigger narration if user explicitly enabled it
-      // Single-playback locking: Do not interrupt currently playing audio unless competitor has strictly higher priority
       const isCurrentlyPlaying = isAudioPlaying || speechEngine.getIsSpeaking();
-      const canPlay =
-        autoNarrationEnabled &&
-        (!isCurrentlyPlaying || (activePOI && (poi.priority ?? 0) > (activePOI.priority ?? 0)));
 
-      if (canPlay && lastAutoSpokenPoiId.current !== poi.poi_id) {
-        lastAutoSpokenPoiId.current = poi.poi_id;
-        handlePlayPOI(poi, currentLang);
+      if (isCurrentlyPlaying) {
+        setGeofenceToast({ poi, distance });
+        setTimeout(() => setGeofenceToast(null), 6000);
+        return;
       }
+
+      setGeofenceToast(null);
+      handlePlayPOI(poi, currentLang);
     },
-    [autoNarrationEnabled, currentLang, handlePlayPOI, isAudioPlaying, activePOI]
+    [currentLang, handlePlayPOI, isAudioPlaying]
   );
 
-  // Real GPS Tracker with Hierarchical POI Selection & Locking (priority -> d/radius -> distance -> display_order)
-  const { userLocation } = useGPSTracker(pois, handleGeofenceEnter, activePOI?.poi_id, isAudioPlaying);
+  // Real GPS Tracker selects by distance, then priority, then display order.
+  const { userLocation } = useGPSTracker(pois, handleGeofenceEnter, activePOI?.poi_id);
 
   const handleNextPOI = () => {
     if (!activePOI || pois.length === 0) return;

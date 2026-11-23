@@ -223,8 +223,8 @@ async function testPoiListenTracking() {
 await testPoiListenTracking();
 
 // =========================================================================
-// 8. THUẬT TOÁN ĐỊNH TUYẾN GEOFENCE NÂNG CAO (PRIORITY, HYSTERESIS & LOCKING)
-// Mô phỏng 2 POI tâm cách nhau 15m (R=20m và R=30m) tại 5 vị trí người dùng
+// 8. THUẬT TOÁN CHỌN POI THEO KHOẢNG CÁCH, PRIORITY VÀ THỨ TỰ
+// Mô phỏng 2 POI tâm cách nhau 15m (R=20m và R=30m) tại nhiều vị trí người dùng
 // =========================================================================
 import { selectBestCandidatePOI } from '../src/utils/geo.js';
 
@@ -259,66 +259,67 @@ function testGeofenceResolutionAndLocking() {
 
   const poiList = [poiA, poiB];
 
-  // 8.1 Vị trí 1: Gần tâm A (x = 2m)
-  // d_A = 2m (ratio 2/20 = 0.10), d_B = 13m (ratio 13/30 = 0.433)
+  // 8.1 Vị trí 1: A thắng vì gần hơn, dù B có thể có priority cao hơn.
   const atPos1 = selectBestCandidatePOI(poiList, metersToLat(2), baseLng);
   assert(atPos1 !== null);
-  assert.strictEqual(atPos1.poi.poi_id, 'poi-A', 'Vị trí 1 (gần tâm A 2m): Phải chọn POI A vì ratio thâm nhập nhỏ hơn');
+  assert.strictEqual(atPos1.poi.poi_id, 'poi-A', 'Chọn điểm gần nhất trước khi xét priority');
 
-  // 8.2 Vị trí 2: Gần tâm B (x = 14m)
-  // d_A = 14m (ratio 14/20 = 0.70), d_B = 1m (ratio 1/30 = 0.033)
+  // 8.2 Vị trí 2: B gần hơn nên thắng.
   const atPos2 = selectBestCandidatePOI(poiList, metersToLat(14), baseLng);
   assert(atPos2 !== null);
-  assert.strictEqual(atPos2.poi.poi_id, 'poi-B', 'Vị trí 2 (gần tâm B 1m): Phải chọn POI B vì ratio thâm nhập nhỏ hơn');
+  assert.strictEqual(atPos2.poi.poi_id, 'poi-B', 'Chọn điểm gần nhất');
 
-  // 8.3 Vị trí 3: Ở chính giữa (x = 7.5m)
-  // Cùng priority=0: d_A = 7.5m (ratio 7.5/20 = 0.375), d_B = 7.5m (ratio 7.5/30 = 0.250) -> B thắng vì thâm nhập sâu hơn tương đối
+  // 8.3 Khi khoảng cách bằng nhau, priority cao hơn thắng.
+  const poiBWithPriority = { ...poiB, priority: 1 };
+  const atPos3Priority = selectBestCandidatePOI([poiA, poiBWithPriority], metersToLat(7.5), baseLng);
+  assert(atPos3Priority !== null);
+  assert.strictEqual(atPos3Priority.poi.poi_id, 'poi-B', 'Khi khoảng cách bằng nhau, priority cao hơn thắng');
+
+  // Nếu khoảng cách và priority cùng bằng nhau, display_order nhỏ hơn thắng.
   const atPos3Default = selectBestCandidatePOI(poiList, metersToLat(7.5), baseLng);
   assert(atPos3Default !== null);
-  assert.strictEqual(atPos3Default.poi.poi_id, 'poi-B', 'Vị trí 3 (giữa, cùng priority): B thắng vì ratio 0.250 < 0.375');
+  assert.strictEqual(atPos3Default.poi.poi_id, 'poi-A', 'Khi hòa khoảng cách và priority, display_order nhỏ hơn thắng');
 
-  // Nhưng nếu POI A có priority = 1 (cao hơn POI B priority = 0) -> A THẮNG TUYỆT ĐỐI
-  const poiAWithPriority = { ...poiA, priority: 1 };
-  const atPos3Priority = selectBestCandidatePOI([poiAWithPriority, poiB], metersToLat(7.5), baseLng);
-  assert(atPos3Priority !== null);
-  assert.strictEqual(atPos3Priority.poi.poi_id, 'poi-A', 'Vị trí 3 (A có priority=1): A thắng tuyệt đối bất kể ratio hay khoảng cách');
+  // Priority cao hơn không thể thắng nếu điểm đó xa hơn.
+  const fartherPoiBWithPriority = { ...poiB, priority: 10 };
+  const fartherPriorityCandidate = selectBestCandidatePOI(
+    [poiA, fartherPoiBWithPriority],
+    metersToLat(2),
+    baseLng
+  );
+  assert(fartherPriorityCandidate !== null);
+  assert.strictEqual(fartherPriorityCandidate.poi.poi_id, 'poi-A', 'Khoảng cách gần hơn được xét trước priority');
 
   // 8.4 Vị trí 4: Ngoài cả hai (x = 50m)
   // d_A = 50m > 20m, d_B = 35m > 30m -> null
   const atPos4 = selectBestCandidatePOI(poiList, metersToLat(50), baseLng);
   assert.strictEqual(atPos4, null, 'Vị trí 4 (ngoài cả hai): Phải trả về null (không kích hoạt)');
 
-  // 8.5 Vị trí 5: Đi từ A sang B khi POI A đang phát (Single-playback Locking)
-  // Bắt đầu tại x=0, phát A. Khi bước đến x=2m, 7.5m, 14m (vùng giao của B):
-  // Nhờ cơ chế Locking, POI A KHÔNG BỊ NGẮT nếu B không có priority cao hơn!
+  // 8.5 Khi audio đang phát ở A, vẫn chọn B làm ứng viên gần nhất;
+  // App chỉ hiển thị thông báo thay vì ngắt audio hiện tại.
   const walkingWhilePlayingA = selectBestCandidatePOI(poiList, metersToLat(12), baseLng, {
     currentPoiId: 'poi-A',
-    isPlaying: true,
   });
   assert(walkingWhilePlayingA !== null);
-  assert.strictEqual(walkingWhilePlayingA.poi.poi_id, 'poi-A', 'Đang phát POI A: Không bị POI B ngắt khi bước vào vùng giao nhau');
+  assert.strictEqual(walkingWhilePlayingA.poi.poi_id, 'poi-B', 'Chọn POI gần nhất dù audio hiện tại là A');
 
-  // Khi đi hẳn ra ngoài vùng thoát của A (> 20m + 8m buffer = 28m), ví dụ x = 30m:
-  // POI A thoát hẳn, quyền phát được chuyển sang B (nếu B vẫn thỏa mãn d_B = 15m <= 30m)
+  // Khi rời vùng đệm A (> 20m + 8m), B vẫn được chọn nếu còn trong geofence.
   const walkingOutOfA = selectBestCandidatePOI(poiList, metersToLat(30), baseLng, {
     currentPoiId: 'poi-A',
-    isPlaying: true,
     hysteresisBufferMeters: 8,
   });
   assert(walkingOutOfA !== null);
-  assert.strictEqual(walkingOutOfA.poi.poi_id, 'poi-B', 'Khi bước ra ngoài bán kính thoát của A (>28m): Tự động chuyển sang POI B');
+  assert.strictEqual(walkingOutOfA.poi.poi_id, 'poi-B', 'Chọn POI B sau khi ra khỏi vùng đệm A');
 
-  // 8.6 Hysteresis chống nhiễu GPS (Flapping Prevention khi đứng ở ranh giới)
-  // Khi không phát nhưng đang ở A (x=6m, ratio_A = 0.30, ratio_B = 9/30 = 0.30)
-  const boundaryHysteresis = selectBestCandidatePOI(poiList, metersToLat(6), baseLng, {
+  // 8.6 Vùng đệm giữ POI hiện tại trong danh sách ứng viên thêm tối đa 8m.
+  const currentPoiWithinBuffer = selectBestCandidatePOI([poiA], metersToLat(26), baseLng, {
     currentPoiId: 'poi-A',
-    isPlaying: false,
-    switchRatioMargin: 0.15,
+    hysteresisBufferMeters: 8,
   });
-  assert(boundaryHysteresis !== null);
-  assert.strictEqual(boundaryHysteresis.poi.poi_id, 'poi-A', 'Hysteresis: Biên độ chưa chênh lệch >=15% thì giữ nguyên POI hiện tại, tránh nhảy giật');
+  assert(currentPoiWithinBuffer !== null);
+  assert.strictEqual(currentPoiWithinBuffer.poi.poi_id, 'poi-A', 'POI hiện tại còn hợp lệ trong vùng đệm 8m');
 
-  console.log('✅ Hierarchical POI Selection, Priority, Single-playback Locking & Hysteresis verified (5 positions simulation passed).');
+  console.log('✅ POI Selection by Distance, Priority, Display Order & Geofence Buffer verified.');
 }
 testGeofenceResolutionAndLocking();
 
