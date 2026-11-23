@@ -146,6 +146,20 @@ export class POIController {
     }
   }
 
+  // DELETE /api/pois/:id/translations/:lang (Admin only)
+  public deleteTranslation(req: Request, res: Response) {
+    try {
+      if (!checkAdminAuth(req)) {
+        return res.status(403).json({ success: false, error: 'Yêu cầu quyền Admin để xóa bản dịch.' });
+      }
+      const { id, lang } = req.params;
+      const updated = poiService.deleteTranslation(id, lang);
+      return res.json({ success: true, data: updated });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, error: error.message });
+    }
+  }
+
   // POST /api/pois/:id/media (Admin only)
   public addMedia(req: Request, res: Response) {
     try {

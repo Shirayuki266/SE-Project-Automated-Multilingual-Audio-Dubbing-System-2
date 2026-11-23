@@ -1,4 +1,5 @@
 import { poiRepository } from '../repositories/poiRepository.js';
+import { db } from '../repositories/db.js';
 import { RichPOI, POIEntity, Campus } from '../types.js';
 import { fileStorageService } from './fileStorageService.js';
 
@@ -161,6 +162,20 @@ export class POIService {
       updated_at: new Date().toISOString(),
     };
     poiRepository.saveTranslation(trans);
+    return poiRepository.findById(poiId);
+  }
+
+  public deleteTranslation(poiId: string, lang: string) {
+    const existing = poiRepository.findById(poiId);
+    if (!existing) {
+      throw new Error(`Không tìm thấy điểm POI với mã "${poiId}".`);
+    }
+    if (!existing.translations[lang.toLowerCase()]) {
+      throw new Error(`Chưa có bản dịch cho ngôn ngữ "${lang}".`);
+    }
+    if (!db.deleteTranslation(poiId, lang)) {
+      throw new Error(`Không thể xóa bản dịch ngôn ngữ "${lang}".`);
+    }
     return poiRepository.findById(poiId);
   }
 

@@ -21,6 +21,16 @@ export class MongoDatabaseManager {
 
     this.initPromise = (async () => {
       try {
+        try {
+          const connectionUrl = new URL(mongoUri);
+          const username = decodeURIComponent(connectionUrl.username) || '(not specified)';
+          console.info(
+            `[MongoDB] Connecting with username="${username}" host="${connectionUrl.host}" database="${dbName}"`,
+          );
+        } catch {
+          console.warn('[MongoDB] Could not parse MONGODB_URI for safe connection diagnostics');
+        }
+
         this.client = new MongoClient(mongoUri, {
           serverSelectionTimeoutMS: 5000,
           connectTimeoutMS: 7000,

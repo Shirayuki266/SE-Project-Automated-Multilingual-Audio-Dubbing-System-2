@@ -19,6 +19,7 @@ import { fileStorageService } from '../services/fileStorageService.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const UPLOADS_DIR = path.resolve(__dirname, '../../../public/uploads');
+const AUDIO_UPLOADS_DIR = path.resolve(__dirname, '../../../public/audio');
 
 if (!fs.existsSync(UPLOADS_DIR)) {
   fs.mkdirSync(UPLOADS_DIR, { recursive: true });
@@ -48,6 +49,30 @@ const upload = multer({
       cb(null, true);
     } else {
       cb(new Error('Chỉ chấp nhận định dạng ảnh JPEG, PNG hoặc WebP.'));
+    }
+  },
+});
+
+const audioUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => {
+      if (!fs.existsSync(AUDIO_UPLOADS_DIR)) {
+        fs.mkdirSync(AUDIO_UPLOADS_DIR, { recursive: true });
+      }
+      cb(null, AUDIO_UPLOADS_DIR);
+    },
+    filename: (_req, _file, cb) => {
+      cb(null, `admin-${Date.now()}-${crypto.randomBytes(8).toString('hex')}.mp3`);
+    },
+  }),
+  limits: { fileSize: 20 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const isMp3 = path.extname(file.originalname).toLowerCase() === '.mp3'
+      && ['audio/mpeg', 'audio/mp3', 'application/octet-stream'].includes(file.mimetype.toLowerCase());
+    if (isMp3) {
+      cb(null, true);
+    } else {
+      cb(new Error('Chỉ chấp nhận file âm thanh MP3.'));
     }
   },
 });
@@ -196,6 +221,20 @@ router.put('/pois/:id', (req, res) => poiController.update(req, res));
 router.delete('/pois/:id', (req, res) => poiController.delete(req, res));
 router.post('/pois/:id/ai-translate', (req, res) => poiController.aiTranslate(req, res));
 router.put('/pois/:id/translations/:lang', (req, res) => poiController.saveTranslation(req, res));
+router.delete('/pois/:id/translations/:lang', (req, res) => poiController.deleteTranslation(req, res));
+
+router.post('/pois/:id/translations/:lang/draft', requireAdmin, async (req, res) => {
+  try {
+    const data = await localizationService.generateTranslationDraft(req.params.id, req.params.lang);
+    return res.json({ success: true, data });
+  } catch (err: any) {
+    const status = err.message === 'Mã ngôn ngữ đích không hợp lệ.' ? 400 : 503;
+    return res.status(status).json({
+      success: false,
+      error: 'Không thể kết nối AI lúc này, vui lòng nhập nội dung dịch thủ công',
+    });
+  }
+});
 
 router.post('/pois/:id/translations/:lang/regenerate-audio', requireAdmin, async (req, res) => {
   try {
@@ -234,6 +273,23 @@ router.post('/admin/upload-image', requireAdmin, (req, res) => {
       size: req.file.size,
       mimetype: req.file.mimetype,
       message: 'Tải ảnh lên thành công.',
+    });
+  });
+});
+
+router.post('/admin/upload-audio', requireAdmin, (req, res) => {
+  audioUpload.single('audio')(req, res, (err: any) => {
+    if (err) {
+      return res.status(400).json({ success: false, error: err.message || 'Lỗi khi tải audio lên.' });
+    }
+    if (!req.file) {
+      return res.status(400).json({ success: false, error: 'Vui lòng chọn file MP3 hợp lệ.' });
+    }
+    return res.json({
+      success: true,
+      audioUrl: `/audio/${req.file.filename}`,
+      size: req.file.size,
+      message: 'Tải file MP3 lên thành công.',
     });
   });
 });
